@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: bidstay-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/bidstay}
+    username: ${DB_USER:bidstay}
+    password: ${DB_PASSWORD:bidstay}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate          # schema is owned by Flyway, never by Hibernate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+
+bidstay:
+  offer-response-window: 15m      # hotel must reply within this time
+  bid-lifetime: 60m               # whole bid request expires after this
+  payment-hold: 10m               # inventory is held this long while guest pays
+  max-rounds: 3                   # initial bid + 2 raises (matches the demo)
+  max-hotels-per-bid: 50
+  max-nights: 30
+  commission-pct: 10.0            # PDF: 8-12%
+
+server:
+  port: 8080
