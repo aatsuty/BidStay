@@ -36,7 +36,7 @@ Live offers with a reply countdown per hotel: accepted, counter offer, waiting, 
 Raise the bid (max 3 rounds), book an offer, 10-minute room hold, payment step
 Hotel name and address revealed only after payment
 Hotel portal
-WhatsApp-style chat: reply YES, NO or COUNTER 1500. Bid cards with Accept, Decline and Counter buttons stay in sync with the chat
+WhatsApp-style chat: reply using the offer and round shown in the message, for example YES 42/1, NO 42/1 or COUNTER 1500 42/1. Bid cards with Accept, Decline and Counter buttons stay in sync with the chat
 Rates and rules: private minimum price per room, automatic acceptance at or above the minimum, auto-counter for bids slightly below it, auto-decline, or manual approval of every bid
 Availability calendar (cannot drop below rooms already booked), paid bookings with payout, 30-day insights
 Registration with four documents: GST, licence, owner ID, photos
@@ -94,7 +94,7 @@ npm install && npx expo start
 
 Demo accounts (the dev profile only): the portals' login page has buttons for the hotel owner (user 3), a new hotel owner with hotels waiting for approval (user 5), and the admin (user 4). The guest app uses user 1.
 
-Try it in 5 minutes: bid ₹1,100 at Hotel Sunrise and Hotel Metro Inn from the guest app. Metro Inn accepts instantly (private minimum ₹1,000). Sunrise (minimum ₹1,200) waits, so open the hotel portal and type COUNTER 1500 in the chat. Back in the guest app, book the counter offer and pay.
+Try it in 5 minutes: bid ₹1,100 at Hotel Sunrise and Hotel Metro Inn from the guest app. Metro Inn accepts instantly (private minimum ₹1,000). Sunrise (minimum ₹1,200) waits, so open the hotel portal and use the Counter button or copy the counter command from the chat message. Back in the guest app, book the counter offer and pay.
 
 Project structure
 bidstay/

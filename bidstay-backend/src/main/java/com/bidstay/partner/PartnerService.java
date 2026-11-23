@@ -25,7 +25,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class PartnerService {
 
-    private static final Pattern COUNTER = Pattern.compile("^(COUNTER|C)\\s*₹?\\s*(\\d{3,6})\\b");
+    private static final Pattern CHAT_REPLY = Pattern.compile(
+            "^(?:(YES|NO)|COUNTER\\s+₹?\\s*(\\d{1,9}(?:\\.\\d{1,2})?))\\s+(\\d{1,18})/(\\d{1,9})$");
 
     private final HotelRepository hotels;
     private final RoomTypeRepository roomTypes;
@@ -171,41 +172,26 @@ public class PartnerService {
     }
 
     /**
-     * Understands the same replies as the demo: YES, NO, COUNTER 1500.
-     * Deliberately NOT @Transactional: a rejected reply (for example an expired request) must not roll
-     * back the chat messages that explain why.
+     * Records the message even if its referenced bid can no longer be answered.
      */
     public List<ChatMessageView> handleChatText(Long hotelId, String raw) {
         String text = raw.trim();
         PartnerMessage sent = chat.hotelSays(hotelId, text);
-        String u = text.toUpperCase(Locale.ROOT);
+        Matcher reply = CHAT_REPLY.matcher(text.toUpperCase(Locale.ROOT));
 
-        List<HotelOfferView> pending = bids.pendingForHotel(hotelId);
-        Matcher counter = COUNTER.matcher(u);
-        HotelAction action = null;
-        BigDecimal counterPrice = null;
-        if (u.matches("^(YES|Y|ACCEPT)\\b.*")) action = HotelAction.ACCEPT;
-        else if (u.matches("^(NO|N|DECLINE)\\b.*")) action = HotelAction.DECLINE;
-        else if (counter.find()) {
-            action = HotelAction.COUNTER;
-            counterPrice = new BigDecimal(counter.group(2));
-        }
-
-        if (action == null) {
+        if (!reply.matches()) {
             chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
-                    "Sorry, I did not understand that. Reply *YES* to accept, *NO* to decline, or *COUNTER 1500* with your price.", null);
-        } else if (pending.isEmpty()) {
-            chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "There is no bid waiting for your reply right now.", null);
+                    "Use the reply buttons or include the request and round shown in the message, for example *YES 42/1* or *COUNTER 1500 42/1*.", null);
         } else {
-            HotelOfferView target = pending.get(0);        // newest request first
+            Long offerId = Long.valueOf(reply.group(3));
+            int round = Integer.parseInt(reply.group(4));
+            HotelAction action = reply.group(1) == null ? HotelAction.COUNTER
+                    : "YES".equals(reply.group(1)) ? HotelAction.ACCEPT : HotelAction.DECLINE;
+            BigDecimal price = reply.group(2) == null ? null : new BigDecimal(reply.group(2));
             try {
-                bids.respond(hotelId, target.offerId(), new HotelRespond(action, counterPrice));
-                if (pending.size() > 1) {
-                    chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
-                            "You have " + (pending.size() - 1) + " more request(s) waiting. Open the Requests page to reply to a specific one.", null);
-                }
+                bids.respond(hotelId, offerId, new HotelRespond(action, price, round));
             } catch (ApiException e) {
-                chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "Could not record that: " + e.getMessage(), target.offerId());
+                chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "Could not record that: " + e.getMessage(), null);
             }
         }
         return chatHistory(hotelId, sent.getId() - 1);

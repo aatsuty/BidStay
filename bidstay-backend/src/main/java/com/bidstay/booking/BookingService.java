@@ -105,7 +105,7 @@ public class BookingService {
     /** Scheduler: guest never paid, so give the rooms back. */
     @Transactional
     public int releaseExpiredHolds() {
-        List<Booking> stale = bookings.findByStatusAndHoldExpiresAtBefore(BookingStatus.PENDING_PAYMENT, clock.instant());
+        List<Booking> stale = bookings.findTop100ByStatusAndHoldExpiresAtBeforeOrderByHoldExpiresAtAscIdAsc(BookingStatus.PENDING_PAYMENT, clock.instant());
         for (Booking b : stale) {
             inventory.release(b.getRoomTypeId(), b.getCheckIn(), b.getCheckOut(), b.getRooms());
             b.setStatus(BookingStatus.EXPIRED);

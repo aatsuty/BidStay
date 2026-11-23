@@ -18,17 +18,17 @@ export default function Requests() {
 
   return (
     <>
-      <PageHead title="Bid requests" sub="Reply here, or by WhatsApp. Both work, and both stay in sync." />
+      <PageHead title="Bid requests" sub="Review bids and reply from your partner inbox." />
       <div className="split">
         <div>
           <ErrorBox error={offers.error} />
           {!offers.isLoading && !offers.data?.length && (
             <div className="card">
               <h3>No bid requests waiting</h3>
-              <p className="muted small">Guest bids below your auto-accept rules show up here with a countdown, and in the WhatsApp chat on the right.</p>
+              <p className="muted small">Guest bids below your auto-accept rules show up here with a countdown, and in the partner chat.</p>
             </div>
           )}
-          {offers.data?.map((o) => <RequestCard key={o.offerId} offer={o} now={now} />)}
+          {offers.data?.map((o) => <RequestCard key={`${o.offerId}-${o.round}`} offer={o} now={now} />)}
         </div>
         <WhatsAppChat />
       </div>
@@ -48,7 +48,7 @@ function RequestCard({ offer, now }: { offer: HotelOffer; now: number }) {
 
   const respond = useMutation({
     mutationFn: (b: { action: HotelAction; counterPrice?: number }) =>
-      api.post(`/api/v1/partner/hotels/${hotel.id}/offers/${offer.offerId}/respond`, b),
+      api.post(`/api/v1/partner/hotels/${hotel.id}/offers/${offer.offerId}/respond`, { ...b, round: offer.round }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['offers', hotel.id] }); qc.invalidateQueries({ queryKey: ['chat', hotel.id] }); },
   });
 
@@ -108,23 +108,20 @@ function WhatsAppChat() {
     <div className="wa">
       <div className="wa-head">
         <div className="wa-avatar">B</div>
-        <div><b>BidStay</b> <span title="Business account">✔</span><small>WhatsApp Business · {hotel.name}</small></div>
+        <div><b>BidStay</b><small>Partner inbox · {hotel.name}</small></div>
       </div>
       <div className="wa-body" ref={bodyRef}>
         {chat.isLoading && <span className="muted small">Loading chat…</span>}
         {chat.data?.map((m) => (
           <div key={m.id} className={'bubble ' + (m.sender === 'HOTEL' ? 'me' : '') + (m.kind === 'REQUEST' ? ' is-request' : '')}>
             {rich(m.body)}
-            <span className="t">{fmtTime(m.at)}{m.sender === 'HOTEL' ? ' ✓✓' : ''}</span>
+            <span className="t">{fmtTime(m.at)}</span>
           </div>
         ))}
       </div>
       {send.error ? <div className="error" style={{ margin: 0, borderRadius: 0 }}>{errMsg(send.error)}</div> : null}
-      <div className="wa-quick">
-        {['YES', 'NO', 'COUNTER 1500'].map((q) => <button key={q} onClick={() => setText(q)}>{q}</button>)}
-      </div>
       <form className="wa-input" onSubmit={(e) => { e.preventDefault(); submit(text); }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply YES, NO or COUNTER 1500" maxLength={200} />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply using the request reference" maxLength={200} />
         <button type="submit" aria-label="Send" disabled={send.isPending}>➤</button>
       </form>
     </div>

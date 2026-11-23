@@ -9,6 +9,7 @@ import com.bidstay.booking.BookingStatus;
 import com.bidstay.booking.BookingView;
 import com.bidstay.common.ApiException;
 import com.bidstay.hotel.HotelRepository;
+import com.bidstay.hotel.HotelStatus;
 import com.bidstay.hotel.RoomCategory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,7 +70,7 @@ class BidFlowIT {
         Long offerId = v.offers().get(0).offerId();
         assertEquals(OfferStatus.PENDING, v.offers().get(0).status());
 
-        OfferStatus after = bidService.respond(sunrise(), offerId, new HotelRespond(HotelAction.COUNTER, new BigDecimal("1500")));
+        OfferStatus after = bidService.respond(sunrise(), offerId, new HotelRespond(HotelAction.COUNTER, new BigDecimal("1500"), 1));
         assertEquals(OfferStatus.COUNTERED, after);
 
         BookingView booking = bidService.acceptOffer(1L, v.bidId(), offerId);
@@ -114,11 +115,36 @@ class BidFlowIT {
     }
 
     @Test
+    void suspendedHotelCannotReplyOrReceiveBookingsFromExistingBids() {
+        BidView accepted = bidService.create(1L, bid(45, 1, "1300"));
+        BidView pending = bidService.create(1L, bid(48, 1, "1100"));
+        var hotel = hotels.findById(sunrise()).orElseThrow();
+        hotel.setStatus(HotelStatus.SUSPENDED);
+        hotels.save(hotel);
+        try {
+            ApiException bookingError = assertThrows(ApiException.class, () ->
+                    bidService.acceptOffer(1L, accepted.bidId(), accepted.offers().get(0).offerId()));
+            assertEquals(HttpStatus.CONFLICT, bookingError.getStatus());
+
+            ApiException replyError = assertThrows(ApiException.class, () ->
+                    bidService.respond(hotel.getId(), pending.offers().get(0).offerId(),
+                            new HotelRespond(HotelAction.ACCEPT, null, 1)));
+            assertEquals(HttpStatus.CONFLICT, replyError.getStatus());
+
+            BidView raised = bidService.raise(1L, pending.bidId(), new BigDecimal("1500"));
+            assertEquals(OfferStatus.UNAVAILABLE, raised.offers().get(0).status());
+        } finally {
+            hotel.setStatus(HotelStatus.ACTIVE);
+            hotels.save(hotel);
+        }
+    }
+
+    @Test
     void hotelCannotAnswerAnotherHotelsOffer() {
         BidView v = bidService.create(1L, bid(40, 1, "1000"));
         Long offerId = v.offers().get(0).offerId();
         Long otherHotel = hotels.findByName("Hotel Metro Inn").orElseThrow().getId();
         assertThrows(ApiException.class,
-                () -> bidService.respond(otherHotel, offerId, new HotelRespond(HotelAction.ACCEPT, null)));
+                () -> bidService.respond(otherHotel, offerId, new HotelRespond(HotelAction.ACCEPT, null, 1)));
     }
 }

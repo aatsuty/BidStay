@@ -8,5 +8,5 @@ import java.util.List;
 public interface BookingRepository extends JpaRepository<Booking, Long> {
     List<Booking> findByBidRequestIdOrderByIdDesc(Long bidRequestId);
 
-    List<Booking> findByStatusAndHoldExpiresAtBefore(BookingStatus status, Instant cutoff);
+    List<Booking> findTop100ByStatusAndHoldExpiresAtBeforeOrderByHoldExpiresAtAscIdAsc(BookingStatus status, Instant cutoff);
 }

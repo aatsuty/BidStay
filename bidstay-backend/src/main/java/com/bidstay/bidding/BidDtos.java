@@ -23,7 +23,7 @@ public final class BidDtos {
 
     public record Raise(@NotNull @DecimalMin("1.00") BigDecimal pricePerNight) {}
 
-    public record HotelRespond(@NotNull HotelAction action, BigDecimal counterPrice) {}
+    public record HotelRespond(@NotNull HotelAction action, BigDecimal counterPrice, @NotNull @Min(1) Integer round) {}
 
     /** What the guest sees. Contains no hotel minimum price and no hotel address. */
     public record OfferView(Long offerId, Long hotelId, String hotelName, String area,

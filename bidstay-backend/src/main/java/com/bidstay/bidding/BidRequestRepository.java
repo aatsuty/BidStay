@@ -8,5 +8,5 @@ import java.util.List;
 public interface BidRequestRepository extends JpaRepository<BidRequest, Long> {
     List<BidRequest> findByGuestIdOrderByCreatedAtDesc(Long guestId);
 
-    List<BidRequest> findByStatusAndExpiresAtBefore(BidStatus status, Instant cutoff);
+    List<BidRequest> findTop100ByStatusAndExpiresAtBeforeOrderByExpiresAtAscIdAsc(BidStatus status, Instant cutoff);
 }

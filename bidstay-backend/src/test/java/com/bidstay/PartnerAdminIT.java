@@ -92,12 +92,20 @@ class PartnerAdminIT {
         assertEquals(OfferStatus.PENDING, v.offers().get(0).status());
         assertTrue(chat.history(sunrise().getId(), 0).stream().anyMatch(m -> m.getKind().name().equals("REQUEST")));
 
-        var msgs = partner.handleChatText(sunrise().getId(), "counter 1500");
+        long offerId = v.offers().get(0).offerId();
+        BidView newer = bid(57, "1100");
+        var ambiguous = partner.handleChatText(sunrise().getId(), "YES if breakfast is included");
+        assertTrue(ambiguous.get(ambiguous.size() - 1).body().contains("request and round"));
+        assertEquals(OfferStatus.PENDING, bids.get(1L, newer.bidId()).offers().get(0).status());
+
+        bids.raise(1L, v.bidId(), new BigDecimal("1150"));
+        partner.handleChatText(sunrise().getId(), "YES " + offerId + "/1");
+        assertEquals(OfferStatus.PENDING, bids.get(1L, v.bidId()).offers().get(0).status());
+
+        var msgs = partner.handleChatText(sunrise().getId(), "counter 1500 " + offerId + "/2");
         assertEquals("HOTEL", msgs.get(0).sender());
         assertEquals(OfferStatus.COUNTERED, bids.get(1L, v.bidId()).offers().get(0).status());
-
-        var unknown = partner.handleChatText(sunrise().getId(), "hello");
-        assertTrue(unknown.get(unknown.size() - 1).body().contains("did not understand"));
+        assertEquals(OfferStatus.PENDING, bids.get(1L, newer.bidId()).offers().get(0).status());
     }
 
     @Test
