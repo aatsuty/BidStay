@@ -26,7 +26,7 @@ public final class PartnerDtos {
 
     public record DocumentInput(@NotBlank @Size(max = 300) String reference) {}
 
-    public record DocumentView(DocType type, boolean submitted, boolean verified, String reference) {}
+    public record DocumentView(DocType type, boolean submitted, boolean verified, String reference, Long versionId) {}
 
     public record RoomRate(Long roomTypeId, RoomCategory category, String name, BigDecimal listedPrice, BigDecimal minPrice, int totalRooms) {}
 
@@ -43,7 +43,7 @@ public final class PartnerDtos {
 
     public record AvailabilityUpdate(@NotNull Long roomTypeId, @NotNull LocalDate from, @NotNull LocalDate to, @Min(0) @Max(500) int totalRooms) {}
 
-    public record ChatMessageView(Long id, String sender, String kind, String body, Long offerId, Instant at) {}
+    public record ChatMessageView(Long id, String sender, String kind, String body, Long offerId, Instant at, String channel, String whatsappStatus) {}
 
     public record ChatSend(@NotBlank @Size(max = 200) String text) {}
 

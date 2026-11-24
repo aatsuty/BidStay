@@ -2,6 +2,7 @@ package com.bidstay.partner;
 
 import com.bidstay.bidding.BidDtos.HotelOfferView;
 import com.bidstay.bidding.BidDtos.HotelRespond;
+import com.bidstay.whatsapp.WhatsAppNotifications;
 import com.bidstay.bidding.BidService;
 import com.bidstay.bidding.HotelAction;
 import com.bidstay.common.ApiException;
@@ -36,6 +37,7 @@ public class PartnerService {
     private final PartnerChatService chat;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final WhatsAppNotifications whatsapp;
 
     // ------------------------------------------------------------------ registration & documents
 
@@ -85,7 +87,7 @@ public class PartnerService {
         docs.findByHotelId(hotelId).forEach(d -> have.put(d.getDocType(), d));
         return Arrays.stream(DocType.values()).map(t -> {
             HotelDocument d = have.get(t);
-            return new DocumentView(t, d != null, d != null && d.isVerified(), d == null ? null : d.getReference());
+            return new DocumentView(t, d != null, d != null && d.isVerified(), d == null ? null : d.getReference(), d == null ? null : d.getVersionId());
         }).toList();
     }
 
@@ -94,6 +96,7 @@ public class PartnerService {
         HotelDocument d = docs.findByHotelIdAndDocType(hotelId, type).orElseGet(HotelDocument::new);
         d.setHotelId(hotelId);
         d.setDocType(type);
+        if (d.getVersionId() != null) throw ApiException.conflict("Upload a replacement file for this document");
         d.setReference(reference.trim());
         d.setSubmittedAt(clock.instant());
         d.setVerified(false);          // a changed document must be checked again
@@ -168,7 +171,10 @@ public class PartnerService {
     // ------------------------------------------------------------------ WhatsApp-style chat
 
     public List<ChatMessageView> chatHistory(Long hotelId, long afterId) {
-        return chat.history(hotelId, afterId).stream().map(PartnerService::view).toList();
+        var messages = chat.history(hotelId, afterId);
+        var statuses = whatsapp.deliveryStatus(messages.stream().map(PartnerMessage::getId).toList());
+        return messages.stream().map(m -> new ChatMessageView(m.getId(), m.getSender().name(), m.getKind().name(),
+                m.getBody(), m.getBidOfferId(), m.getCreatedAt(), m.getChannel(), statuses.get(m.getId()))).toList();
     }
 
     /**
@@ -245,7 +251,5 @@ public class PartnerService {
                 .orElseThrow(() -> ApiException.notFound("Room type"));
     }
 
-    private static ChatMessageView view(PartnerMessage m) {
-        return new ChatMessageView(m.getId(), m.getSender().name(), m.getKind().name(), m.getBody(), m.getBidOfferId(), m.getCreatedAt());
-    }
+
 }

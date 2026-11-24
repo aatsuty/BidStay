@@ -1,8 +1,10 @@
 BidStay: Apna Rate, Apna Stay
 
+Pilot branch setup, web routes, provider configuration and scaling notes are in [the BidStay pilot guide](docs/pilot.md).
+
 A hotel booking platform where the guest names the price. One bid goes to many hotels at once. Each hotel can accept, counter or decline, and the booking is confirmed when both sides agree.
 
-Status: working prototype, not deployed. All three apps are built and the main flows work. It runs locally with sample data. Login and payment are in demo mode. See What is not done yet.
+Status: pilot implementation available locally. The React web app serves all three roles. The Expo app serves guests on Android and iOS. The dev profile includes demo accounts and payment.
 
 Why BidStay
 Guests today	Hotels today
@@ -18,9 +20,9 @@ Bid: pick hotels and name a price per night. A price guide helps keep bids reali
 Hotels reply within 15 minutes: accept, counter, or decline. Bids above a hotel's private minimum price can be accepted automatically.
 Raise or accept: the guest can raise the bid (up to 3 rounds) or book the best offer.
 Pay and confirm: the rooms are held for 10 minutes while the guest pays. The hotel's address is shown only after payment.
-Three apps, one backend
+Three roles, one backend
 App	For	Tech	Folder
-Guest app	Travellers	React Native (Expo), TypeScript. Android, iOS and web	bidstay-app
+Guest app	Travellers	React web and React Native (Expo), TypeScript	bidstay-portals (/) and bidstay-app
 Hotel portal	Hotel owners	React, TypeScript, Vite	bidstay-portals (/hotel)
 Admin portal	BidStay team	Same web project	bidstay-portals (/admin)
 Backend API	All of the above	Java 21, Spring Boot 3, PostgreSQL, Flyway	bidstay-backend
@@ -117,26 +119,16 @@ The hotel's minimum price is private. It never appears in any guest-facing respo
 One place decides how a bid is answered (BidService.evaluate), used both when a bid is created and when it is raised, so the rules cannot drift apart.
 Hotels choose how automatic they are: automatic mode, auto-counter within 5 to 20% below the minimum, auto-decline, or fully manual.
 Flyway owns the database schema. Hibernate only validates it.
-Access control is in one service (AccessService). Only the way the caller's identity is read will change when real login is added.
-What is not done yet
+Access control is in one service (AccessService). Outside development, callers use verified guest, hotel staff, or admin sessions.
+Pilot rollout
 
-Be aware before using this for anything real:
+The build includes phone sign-in, property staff invitations, admin MFA, private document uploads,
+Razorpay checkout and refunds, and WhatsApp messaging with optional AI reply drafts. See the
+[pilot guide](docs/pilot.md) for configuration and local testing.
+Pending pilot work includes provider onboarding, HTTPS deployment, backups, monitoring, and validating
+tax and hotel settlement operations. Start with 20 to 30 independent Delhi NCR hotels. Hourly stays,
+public reviews, cashback and featured placement are outside this overnight pilot.
 
-Guest signup and sign-in use phone OTP when Twilio Verify is configured (see bidstay-backend/README.md). Demo identities and portal login are available under the dev profile. Production hotel staff and admin sign-in are pending.
-Payment is fake. The Pay button calls a dev-only endpoint. Razorpay is not integrated.
-WhatsApp is simulated inside the hotel portal. Real WhatsApp Business messaging is not connected.
-No hotel payouts, cancellations or refunds yet.
-Not deployed. No hosting, HTTPS or backups.
-Test status: the web apps type-check and were tested in a browser against a stand-in API. The backend has integration tests (Testcontainers) covering the bid engine, hotel rules, chat commands and approval, but a full end-to-end run on the real backend is still in progress.
-Document upload takes a number or link, not a file.
-Roadmap
-Run everything end to end and fix issues
-Hotel staff invitations and admin MFA
-Razorpay payments, then hotel payouts, cancellations and refunds
-WhatsApp Business messaging and push notifications
-Deploy (HTTPS, backups, monitoring)
-Pilot: 20 to 30 independent hotels in one Delhi NCR area (for example Paharganj or Aerocity) for 30 to 45 days, measured against the three targets above
-Later: map search, hotel photos, reviews, hourly stays, hostels and homestays
 Business model
 
 8 to 12% commission on each confirmed booking (10% in the prototype), below the 15 to 25% of big platforms. Featured listings for hotels after the first six months. Full plan: docs/BidStay-Business-Idea.pdf.

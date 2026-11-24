@@ -3,3 +3,7 @@ spring:
     locations: classpath:db/migration,classpath:db/seed   # adds demo hotels + inventory
     # Existing dev databases may have applied V1000 before newer core migrations were added.
     out-of-order: true
+
+bidstay:
+  booking:
+    free-cancellation: ${BIDSTAY_FREE_CANCELLATION:true}

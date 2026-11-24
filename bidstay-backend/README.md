@@ -7,7 +7,7 @@ Java 21, Spring Boot 3.3, PostgreSQL 16, Flyway. Modular monolith.
 ```bash
 docker compose up -d                       # PostgreSQL
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
-mvn verify                                 # integration tests (needs Docker, uses Testcontainers)
+mvn -Dtest='*IT' test                      # integration tests (needs Docker, uses Testcontainers)
 ```
 The `dev` profile also loads demo data: 4 Delhi hotels, 6 room types, 60 days of inventory,
 guests `X-User-Id: 1` and `2`, and a hotel owner for hotels 1 and 2 (`X-User-Id: 3`).
@@ -23,7 +23,7 @@ SecureStore on native. For web deployment, serve the frontend and API under the 
 HTTPS origin or configure an explicit allowed frontend origin.
 
 Local demo accounts work with the `dev` profile without Twilio. Outside `dev`, the
-API rejects demo identity headers. Hotel and admin production sign-in is pending.
+API rejects demo identity headers. Property staff invitations and administrator MFA use separate sign-in routes.
 Before enabling SMS for a public pilot, configure Twilio Fraud Guard, SMS geography
 permissions, and rate limits at the public API gateway.
 
@@ -82,13 +82,6 @@ Hotels need four verified documents before an admin can approve them. `Inventory
 | Hotel name/address hidden until `CONFIRMED` | `BookingService.toView` |
 | Flyway owns the schema; Hibernate only validates | `application.yml` |
 
-## NOT done yet (next steps, in order)
+## Configure and operate the pilot
 
-1. **Staff auth**: add property-scoped invitations for hotel staff and MFA for admins.
-2. **Razorpay**: create order on accept, verify webhook signature, call `confirmPayment`; refund if payment arrives after hold expiry.
-3. **Notifications**: FCM push to guests; WhatsApp Business API gateway for `PartnerChatService.bot` and an inbound webhook calling `PartnerService.handleChatText` (the chat and command parsing already exist).
-4. **Realtime**: WebSocket/SSE so the guest app sees offers arrive; polling `GET /bids/{id}` works meanwhile.
-5. **Real document upload** (S3) instead of a number/link, and automatic GST lookup.
-7. **Bid sanity**: price guide per area and a floor (for example 30% of listed price) to block junk bids.
-8. **Cancellation and refunds, reviews, ID verification, hourly stays** (feature-flagged).
-9. Before running 2+ instances: ShedLock for `ExpiryJobs`, Redis for rate limiting.
+See the [pilot guide](../docs/pilot.md) for Razorpay, WhatsApp, private documents, staff access and scaling.

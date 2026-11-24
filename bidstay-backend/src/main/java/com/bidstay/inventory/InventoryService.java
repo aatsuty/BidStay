@@ -52,6 +52,11 @@ public class InventoryService {
         });
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void cancelSale(Long roomTypeId, LocalDate checkIn, LocalDate checkOut, int rooms) {
+        lock(roomTypeId, checkIn, checkOut).forEach(row -> row.setSoldRooms(row.getSoldRooms() - rooms));
+    }
+
     /** Creates any missing nights in [from, to) with the given room count. Safe to call repeatedly. */
     @Transactional
     public int ensureRange(Long roomTypeId, LocalDate from, LocalDate to, int totalRooms) {

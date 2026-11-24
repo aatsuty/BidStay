@@ -8,12 +8,12 @@ export interface Me { id: number; name: string; phone: string; role: Role }
 export interface MyHotel { id: number; name: string; area: string; status: HotelStatus; rejectionReason?: string }
 
 export interface HotelOffer {
-  offerId: number; roomType: string; bidPricePerNight: number; listedPrice: number;
+  offerId: number; roomType: string; bidPricePerNight: number; listedPrice: number; minimumPrice: number;
   checkIn: string; checkOut: string; rooms: number; nights: number; round: number; respondBy: string;
 }
 export type HotelAction = 'ACCEPT' | 'COUNTER' | 'DECLINE';
 
-export interface ChatMessage { id: number; sender: 'BOT' | 'HOTEL'; kind: 'REQUEST' | 'SYSTEM' | 'REPLY'; body: string; offerId?: number; at: string }
+export interface ChatMessage { id: number; sender: 'BOT' | 'HOTEL'; kind: 'REQUEST' | 'SYSTEM' | 'REPLY'; body: string; offerId?: number; at: string; channel?: string; whatsappStatus?: string }
 
 export interface RoomRate { roomTypeId: number; category: RoomCategory; name: string; listedPrice: number; minPrice: number; totalRooms: number }
 export interface Rates { autoMode: boolean; autoCounter: boolean; autoCounterPct: number; autoDecline: boolean; rooms: RoomRate[] }
@@ -30,7 +30,7 @@ export interface Dashboard {
   declinedOrExpiredLast30Days: number; avgReplySeconds?: number; confirmedBookingsLast30Days: number;
   payoutLast30Days: number; commissionLast30Days: number; upcomingStays: number;
 }
-export interface DocumentView { type: DocType; submitted: boolean; verified: boolean; reference?: string }
+export interface DocumentView { type: DocType; submitted: boolean; verified: boolean; reference?: string; versionId?: number }
 
 export interface RoomInput { category: RoomCategory; name: string; maxGuests: number; listedPrice: number; minPrice: number; totalRooms: number }
 export interface RegisterHotel {

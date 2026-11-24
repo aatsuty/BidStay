@@ -2,6 +2,7 @@ package com.bidstay.auth;
 
 import com.bidstay.common.ApiException;
 import com.bidstay.user.Role;
+import com.bidstay.user.User;
 import com.bidstay.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 @Service
@@ -55,6 +57,17 @@ class AuthService {
     }
 
     SignedIn verifyCode(String phone, String code, String name) {
+        return verifyPhone(phone, code, () -> {
+            jdbc.update("""
+                    insert into users (phone, name, role) values (?, ?, 'GUEST')
+                    on conflict (phone) do nothing
+                    """, phone, displayName(name, "Guest"));
+            var user = users.findByPhone(phone).orElseThrow();
+            return user.getRole() == Role.GUEST ? issueSession(user) : null;
+        });
+    }
+
+    SignedIn verifyPhone(String phone, String code, Supplier<SignedIn> signIn) {
         String sid = jdbc.query("""
                 select verification_sid from phone_verifications where phone = ? and expires_at > ?
                 """, (rs, i) -> rs.getString(1), phone, Timestamp.from(clock.instant()))
@@ -67,32 +80,33 @@ class AuthService {
                     where phone = ? and verification_sid = ? and expires_at > ?
                     """, phone, sid, Timestamp.from(clock.instant()));
             if (consumed == 0) throw invalidCode();
-
-            jdbc.update("""
-                    insert into users (phone, name, role) values (?, ?, 'GUEST')
-                    on conflict (phone) do nothing
-                    """, phone, name == null || name.isBlank() ? "Guest" : name.strip());
-            var user = users.findByPhone(phone).orElseThrow();
-            if (user.getRole() != Role.GUEST) {
-                // Rollback would make the already verified challenge reusable.
-                return null;
-            }
-
-            byte[] random = new byte[32];
-            RANDOM.nextBytes(random);
-            String token = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
-            Instant expiresAt = clock.instant().plus(SESSION_LIFETIME);
-            jdbc.update("insert into auth_sessions (token_hash, user_id, expires_at) values (?, ?, ?)",
-                    hash(token), user.getId(), Timestamp.from(expiresAt));
-            return new SignedIn(token, expiresAt, new Guest(user.getId(), user.getName(), user.getPhone()));
+            return signIn.get();
         });
+    }
+
+    SignedIn issueSession(User user) {
+        String token = newToken();
+        Instant expiresAt = clock.instant().plus(user.getRole() == Role.ADMIN ? Duration.ofHours(8) : SESSION_LIFETIME);
+        jdbc.update("insert into auth_sessions (token_hash, user_id, expires_at, scope_role) values (?, ?, ?, ?)",
+                hash(token), user.getId(), Timestamp.from(expiresAt), user.getRole().name());
+        return new SignedIn(token, expiresAt, new Guest(user.getId(), user.getName(), user.getPhone()));
+    }
+
+    static String displayName(String name, String fallback) {
+        return name == null || name.isBlank() ? fallback : name.strip();
+    }
+
+    static String newToken() {
+        byte[] random = new byte[32];
+        RANDOM.nextBytes(random);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(random);
     }
 
     Long sessionUserId(String authorization) {
         String hash = authorizationHash(authorization);
         return jdbc.query("""
                 select s.user_id from auth_sessions s join users u on u.id = s.user_id
-                where s.token_hash = ? and s.expires_at > ? and u.role = 'GUEST'
+                where s.token_hash = ? and s.expires_at > ? and u.role = s.scope_role
                 """, (rs, i) -> rs.getLong(1), hash, Timestamp.from(clock.instant()))
                 .stream().findFirst().orElseThrow(AuthService::signInRequired);
     }
@@ -124,7 +138,7 @@ class AuthService {
         return hash(token);
     }
 
-    private static String hash(String token) {
+    static String hash(String token) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(token.getBytes(StandardCharsets.US_ASCII)));

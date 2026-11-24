@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Linking, ScrollView, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookingBadge, Button, Card, ErrorText, Loading } from '@/components/ui';
@@ -26,7 +26,15 @@ export default function BookingScreen() {
   });
   const b = q.data;
 
-  // DEV ONLY. Replaced by Razorpay checkout; the backend confirms from the payment webhook, not from the app.
+  const options = useQuery({ queryKey: ['payment-options', cacheKey], queryFn: () => api.get<{ razorpay: boolean }>('/api/v1/payments/options') });
+  const checkout = useMutation({
+    mutationFn: async () => {
+      const payment = await api.post<{ url: string }>(`/api/v1/bookings/${id}/payment-link`);
+      await Linking.openURL(payment.url);
+    },
+  });
+
+  // DEV ONLY. Real Razorpay payments are confirmed by the backend webhook.
   const pay = useMutation({
     mutationFn: () => api.post<BookingView>(`/api/v1/dev/bookings/${id}/confirm-payment`, { paymentRef: `dev_${Date.now()}` }),
     onSuccess: (data) => {
@@ -77,14 +85,16 @@ export default function BookingScreen() {
       {b.status === 'PENDING_PAYMENT' && (
         <>
           <Text style={{ textAlign: 'center', color: left ? colors.warn : colors.danger, fontWeight: '700', marginBottom: 12 }}>
-            {left ? `Rooms held for you: ${left}` : 'Hold time is over. Pay now or the rooms may be released.'}
+            {left ? `Rooms held for you: ${left}` : 'The room hold has ended.'}
           </Text>
-          <ErrorText message={pay.error ? errorMessage(pay.error) : null} />
-          {DEV_PAYMENTS ? (
-            <Button title={`Pay ${inr(b.totalAmount)} (dev mode, no real payment)`} onPress={() => pay.mutate()} loading={pay.isPending} />
+          <ErrorText message={checkout.error || pay.error ? errorMessage(checkout.error ?? pay.error) : null} />
+          {left && (options.data?.razorpay ? (
+            <Button title={`Pay ${inr(b.totalAmount)} with Razorpay`} onPress={() => checkout.mutate()} loading={checkout.isPending} />
+          ) : DEV_PAYMENTS ? (
+            <Button title="Complete demo payment" onPress={() => pay.mutate()} loading={pay.isPending} />
           ) : (
-            <Text style={{ textAlign: 'center', color: colors.muted }}>Online payment is coming soon.</Text>
-          )}
+            <Text style={{ textAlign: 'center', color: colors.muted }}>Online payment is currently unavailable.</Text>
+          ))}
         </>
       )}
 

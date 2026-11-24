@@ -7,6 +7,7 @@ import com.bidstay.partner.PartnerChatService;
 import com.bidstay.partner.PartnerMessage;
 import com.bidstay.partner.PartnerService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -70,18 +72,42 @@ public class AdminService {
                 .map(this::row).toList();
     }
 
+    @Transactional(readOnly = true)
+    public HotelPage hotelsPage(HotelStatus status, long before) {
+        int size = 24;
+        var page = hotels.adminPage(status, before, PageRequest.of(0, size + 1));
+        var rows = page.stream().limit(size).map(this::row).toList();
+        return new HotelPage(rows, page.size() > size ? page.get(size - 1).getId() : null);
+    }
+
+    public record HotelPage(List<HotelRow> hotels, Long nextCursor) {}
+
     @Transactional
     public HotelRow verifyDocument(Long hotelId, DocType type, boolean verified) {
+        return verifyDocument(hotelId, type, verified, null, null);
+    }
+
+    @Transactional
+    public HotelRow verifyDocument(Long hotelId, DocType type, boolean verified, Long versionId, Long reviewerId) {
+        Hotel hotel = lockedHotel(hotelId);
         HotelDocument d = docs.findByHotelIdAndDocType(hotelId, type)
                 .orElseThrow(() -> ApiException.invalid("The hotel has not submitted this document yet"));
+        if (!Objects.equals(d.getVersionId(), versionId)) {
+            throw ApiException.conflict("The document was replaced. Review the latest file.");
+        }
+        if (versionId != null) {
+            jdbc.update("insert into hotel_document_reviews (version_id, reviewed_by, verified) values (?, ?, ?)",
+                    versionId, reviewerId, verified);
+        }
+        if (!verified && hotel.getStatus() == HotelStatus.ACTIVE) hotel.setStatus(HotelStatus.PENDING_VERIFICATION);
         d.setVerified(verified);
         d.setVerifiedAt(verified ? clock.instant() : null);
-        return row(hotel(hotelId));
+        return row(hotel);
     }
 
     @Transactional
     public HotelRow approve(Long hotelId) {
-        Hotel h = hotel(hotelId);
+        Hotel h = lockedHotel(hotelId);
         long verified = docs.findByHotelId(hotelId).stream().filter(HotelDocument::isVerified).count();
         if (verified < DocType.values().length) throw ApiException.invalid("Verify all four documents before approving");
         h.setStatus(HotelStatus.ACTIVE);
@@ -93,7 +119,7 @@ public class AdminService {
 
     @Transactional
     public HotelRow reject(Long hotelId, String reason) {
-        Hotel h = hotel(hotelId);
+        Hotel h = lockedHotel(hotelId);
         h.setStatus(HotelStatus.REJECTED);
         h.setRejectionReason(reason.trim());
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
@@ -103,7 +129,7 @@ public class AdminService {
 
     @Transactional
     public HotelRow setSuspended(Long hotelId, boolean suspended) {
-        Hotel h = hotel(hotelId);
+        Hotel h = lockedHotel(hotelId);
         if (suspended && h.getStatus() != HotelStatus.ACTIVE) throw ApiException.invalid("Only live hotels can be suspended");
         if (!suspended && h.getStatus() != HotelStatus.SUSPENDED) throw ApiException.invalid("This hotel is not suspended");
         h.setStatus(suspended ? HotelStatus.SUSPENDED : HotelStatus.ACTIVE);
@@ -139,8 +165,8 @@ public class AdminService {
 
     // ------------------------------------------------------------------ helpers
 
-    private Hotel hotel(Long id) {
-        return hotels.findById(id).orElseThrow(() -> ApiException.notFound("Hotel"));
+    private Hotel lockedHotel(Long id) {
+        return hotels.lockById(id).orElseThrow(() -> ApiException.notFound("Hotel"));
     }
 
     private HotelRow row(Hotel h) {

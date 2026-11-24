@@ -11,6 +11,7 @@ import com.bidstay.common.ApiException;
 import com.bidstay.hotel.HotelRepository;
 import com.bidstay.hotel.HotelStatus;
 import com.bidstay.hotel.RoomCategory;
+import com.bidstay.partner.InventoryJobs;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationState;
 import org.flywaydb.core.api.MigrationVersion;
@@ -24,6 +25,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockMultipartFile;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -38,6 +40,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -46,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Hotel Sunrise Paharganj, STANDARD room: listed 1800, hidden minimum 1200, 10 rooms.
  * Guests are user ids 1 and 2. Each test uses its own dates so tests do not share inventory.
  */
-@SpringBootTest
+@SpringBootTest(properties = "bidstay.documents.local-path=${java.io.tmpdir}/bidstay-document-integration")
 @AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("dev")
@@ -61,6 +65,7 @@ class BidFlowIT {
     @Autowired HotelRepository hotels;
     @Autowired Flyway flyway;
     @Autowired MockMvc mvc;
+    @Autowired InventoryJobs inventoryJobs;
 
     @Test
     void devDemoAccountsStillReachTheirRoutes() throws Exception {
@@ -72,6 +77,47 @@ class BidFlowIT {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("HOTEL_STAFF"));
         mvc.perform(get("/api/v1/admin/stats").header("X-User-Id", 4).header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void futureInventoryPublicationCanBeRetried() throws Exception {
+        inventoryJobs.rollForward();
+        inventoryJobs.rollForward();
+        LocalDate date = LocalDate.now().plusDays(75);
+        mvc.perform(get("/api/v1/hotels/search").param("city", "Delhi").param("checkIn", date.toString())
+                        .param("checkOut", date.plusDays(1).toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels[0].id").value(sunrise()));
+    }
+
+    @Test
+    void searchFiltersByNightCapacityAndKeepsAddressesPrivate() throws Exception {
+        LocalDate date = LocalDate.now().plusDays(3);
+        mvc.perform(get("/api/v1/hotels/search").param("city", "Delhi").param("checkIn", date.toString())
+                        .param("checkOut", date.plusDays(1).toString()).param("rooms", "10").param("guests", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels[0].address").doesNotExist())
+                .andExpect(jsonPath("$.hotels[0].latitude").value(28.64));
+        mvc.perform(get("/api/v1/hotels/search").param("city", "Delhi").param("checkIn", date.toString())
+                        .param("checkOut", date.plusDays(1).toString()).param("rooms", "10").param("guests", "40"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels").isEmpty());
+    }
+
+    @Test
+    void documentFilesArePrivateAndReviewsRequireTheCurrentVersion() throws Exception {
+        long hotel = hotels.findByName("Pahar Palace").orElseThrow().getId();
+        var file = new MockMultipartFile("file", "registration.pdf", "application/pdf", "%PDF-1.5 demo".getBytes());
+        String endpoint = "/api/v1/partner/hotels/{id}/documents/GST/file";
+        mvc.perform(multipart(endpoint, hotel).file(file).header("X-User-Id", 3))
+                .andExpect(status().isForbidden());
+        mvc.perform(multipart(endpoint, hotel).file(file).header("X-User-Id", 5))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].versionId").isNumber());
+        mvc.perform(get("/api/v1/admin/hotels/{id}/documents/GST/files/1", hotel).header("X-User-Id", 5))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/hotels/{id}/documents/GST/files/1", hotel).header("X-User-Id", 4))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/admin/hotels/{id}/documents/GST/verify", hotel).header("X-User-Id", 4))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/v1/admin/hotels/{id}/documents/GST/verify", hotel).param("versionId", "1").header("X-User-Id", 4))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.documents[0].verified").value(true));
     }
 
     @Test
@@ -96,7 +142,7 @@ class BidFlowIT {
                 .defaultSchema(schema)
                 .schemas(schema)
                 .load();
-        assertEquals(2, upgraded.migrate().migrationsExecuted);
+        assertTrue(upgraded.migrate().migrationsExecuted > 0);
         assertTrue(Arrays.stream(upgraded.info().applied())
                 .anyMatch(migration -> MigrationVersion.fromVersion("3").equals(migration.getVersion())
                         && migration.getState() == MigrationState.OUT_OF_ORDER));

@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -14,6 +15,17 @@ import java.util.List;
 public class HotelController {
 
     private final RoomTypeRepository roomTypes;
+    private final HotelSearch search;
+
+    @GetMapping("/search")
+    public HotelSearch.Page search(@RequestParam String city,
+                                   @RequestParam LocalDate checkIn, @RequestParam LocalDate checkOut,
+                                   @RequestParam(defaultValue = "STANDARD") RoomCategory category,
+                                   @RequestParam(defaultValue = "1") int rooms,
+                                   @RequestParam(defaultValue = "2") int guests,
+                                   @RequestParam(defaultValue = "0") long after) {
+        return search.available(city, checkIn, checkOut, category, rooms, guests, after);
+    }
 
     /** Step 4 of the guest flow: list hotels the guest can choose to send a bid to. */
     @GetMapping

@@ -18,12 +18,12 @@ public final class BidDtos {
             @Min(1) @Max(10) int rooms,
             @Min(1) @Max(40) int guests,
             @NotNull RoomCategory category,
-            @NotNull @DecimalMin("1.00") BigDecimal pricePerNight,
+            @NotNull @DecimalMin("1.00") @Digits(integer = 10, fraction = 2) BigDecimal pricePerNight,
             @NotEmpty List<Long> hotelIds) {}
 
-    public record Raise(@NotNull @DecimalMin("1.00") BigDecimal pricePerNight) {}
+    public record Raise(@NotNull @DecimalMin("1.00") @Digits(integer = 10, fraction = 2) BigDecimal pricePerNight) {}
 
-    public record HotelRespond(@NotNull HotelAction action, BigDecimal counterPrice, @NotNull @Min(1) Integer round) {}
+    public record HotelRespond(@NotNull HotelAction action, @Digits(integer = 10, fraction = 2) BigDecimal counterPrice, @NotNull @Min(1) Integer round) {}
 
     /** What the guest sees. Contains no hotel minimum price and no hotel address. */
     public record OfferView(Long offerId, Long hotelId, String hotelName, String area,
@@ -32,10 +32,10 @@ public final class BidDtos {
 
     public record BidView(Long bidId, BidStatus status, int round, int maxRounds,
                           BigDecimal pricePerNight, LocalDate checkIn, LocalDate checkOut,
-                          int rooms, Instant expiresAt, Long bookingId, List<OfferView> offers) {}
+                          int rooms, Instant expiresAt, Long bookingId, Instant freeCancelUntil, List<OfferView> offers) {}
 
     /** What the hotel sees. The guest stays anonymous until the booking is paid. */
     public record HotelOfferView(Long offerId, String roomType, BigDecimal bidPricePerNight,
-                                 BigDecimal listedPrice, LocalDate checkIn, LocalDate checkOut,
+                                 BigDecimal listedPrice, BigDecimal minimumPrice, LocalDate checkIn, LocalDate checkOut,
                                  int rooms, long nights, int round, Instant respondBy) {}
 }

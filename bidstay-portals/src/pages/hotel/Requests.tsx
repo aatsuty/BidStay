@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import { ListChecks, MessageCircle } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { errMsg, useApi } from '../../lib/api';
 import { countdown, fmtDate, fmtTime, inr, useNow } from '../../lib/format';
 import type { ChatMessage, HotelAction, HotelOffer } from '../../lib/types';
 import { ErrorBox, PageHead } from '../../components/ui';
 import { useHotel } from './HotelContext';
+import WhatsAppPreference from '../WhatsAppPreference';
 
 export default function Requests() {
   const { hotel } = useHotel();
   const api = useApi();
   const now = useNow();
+  const [section, setSection] = useState<'requests' | 'chat'>('requests');
   const offers = useQuery({
     queryKey: ['offers', hotel.id],
     queryFn: () => api.get<HotelOffer[]>(`/api/v1/partner/hotels/${hotel.id}/offers`),
@@ -19,8 +22,12 @@ export default function Requests() {
   return (
     <>
       <PageHead title="Bid requests" sub="Review bids and reply from your partner inbox." />
-      <div className="split">
-        <div>
+      <div className="partner-view-tabs" aria-label="Partner requests view">
+        <button className="btn ghost" aria-pressed={section === 'requests'} onClick={() => setSection('requests')}><ListChecks size={16} /> Requests</button>
+        <button className="btn ghost" aria-pressed={section === 'chat'} onClick={() => setSection('chat')}><MessageCircle size={16} /> Inbox</button>
+      </div>
+      <div className={`split partner-split view-${section}`}>
+        <div className="partner-requests-panel">
           <ErrorBox error={offers.error} />
           {!offers.isLoading && !offers.data?.length && (
             <div className="card">
@@ -30,7 +37,7 @@ export default function Requests() {
           )}
           {offers.data?.map((o) => <RequestCard key={`${o.offerId}-${o.round}`} offer={o} now={now} />)}
         </div>
-        <WhatsAppChat />
+        <div className="partner-chat-panel"><WhatsAppChat /></div>
       </div>
     </>
   );
@@ -44,7 +51,8 @@ function RequestCard({ offer, now }: { offer: HotelOffer; now: number }) {
   const left = countdown(offer.respondBy, now);
   const below = Math.round((1 - offer.bidPricePerNight / offer.listedPrice) * 100);
   const counterNum = Number(counter);
-  const counterOk = counterNum > offer.bidPricePerNight && counterNum <= offer.listedPrice;
+  const belowMinimum = offer.bidPricePerNight < offer.minimumPrice;
+  const counterOk = counterNum > offer.bidPricePerNight && counterNum >= offer.minimumPrice && counterNum <= offer.listedPrice;
 
   const respond = useMutation({
     mutationFn: (b: { action: HotelAction; counterPrice?: number }) =>
@@ -65,9 +73,10 @@ function RequestCard({ offer, now }: { offer: HotelOffer; now: number }) {
         <span className="price">{inr(offer.bidPricePerNight)}</span>
         <span className="muted">per night · your listed price {inr(offer.listedPrice)} ({below}% lower)</span>
       </div>
+      {belowMinimum && <p className="small muted">Below your {inr(offer.minimumPrice)} minimum. Counter or decline.</p>}
       <ErrorBox error={respond.error ? new Error(errMsg(respond.error)) : null} />
       <div className="row wrap">
-        <button className="btn ok" disabled={!left || respond.isPending} onClick={() => respond.mutate({ action: 'ACCEPT' })}>Accept {inr(offer.bidPricePerNight)}</button>
+        <button className="btn ok" disabled={!left || belowMinimum || respond.isPending} onClick={() => respond.mutate({ action: 'ACCEPT' })}>Accept {inr(offer.bidPricePerNight)}</button>
         <button className="btn danger" disabled={!left || respond.isPending} onClick={() => respond.mutate({ action: 'DECLINE' })}>Decline</button>
         <span className="grow" />
         <input className="input" style={{ width: 160 }} inputMode="numeric" placeholder={`Counter up to ${offer.listedPrice}`} value={counter} onChange={(e) => setCounter(e.target.value.replace(/\D/g, ''))} />
@@ -109,13 +118,14 @@ function WhatsAppChat() {
       <div className="wa-head">
         <div className="wa-avatar">B</div>
         <div><b>BidStay</b><small>Partner inbox · {hotel.name}</small></div>
+        <WhatsAppPreference endpoint={`/api/v1/partner/hotels/${hotel.id}/whatsapp`} label="WhatsApp alerts" compact />
       </div>
       <div className="wa-body" ref={bodyRef}>
         {chat.isLoading && <span className="muted small">Loading chat…</span>}
         {chat.data?.map((m) => (
           <div key={m.id} className={'bubble ' + (m.sender === 'HOTEL' ? 'me' : '') + (m.kind === 'REQUEST' ? ' is-request' : '')}>
             {rich(m.body)}
-            <span className="t">{fmtTime(m.at)}</span>
+            <span className="t">{m.channel === 'WHATSAPP' ? 'WhatsApp · ' : ''}{fmtTime(m.at)}{m.whatsappStatus ? ` · WhatsApp ${m.whatsappStatus}` : ''}</span>
           </div>
         ))}
       </div>

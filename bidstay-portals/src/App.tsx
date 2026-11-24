@@ -18,36 +18,37 @@ import AdminHotels from './pages/admin/AdminHotels';
 import AdminBookings from './pages/admin/AdminBookings';
 import AdminBids from './pages/admin/AdminBids';
 import { Loading } from './components/ui';
+import GuestShell from './pages/guest/GuestShell';
+import Search from './pages/guest/Search';
+import { Checkout, Offers, Trips } from './pages/guest/TripFlow';
 
 export function useMe() {
   const api = useApi();
-  const { userId } = useSession();
-  return useQuery({ queryKey: ['me', userId], queryFn: () => api.get<Me>('/api/v1/me'), enabled: userId != null, retry: false });
+  const { userId, cacheKey } = useSession();
+  return useQuery({ queryKey: ['me', cacheKey], queryFn: () => api.get<Me>('/api/v1/me'), enabled: userId != null, retry: false });
 }
 
-const home = (role: Role) => (role === 'ADMIN' ? '/admin' : role === 'HOTEL_STAFF' ? '/hotel' : '/login');
+const home = (role: Role) => (role === 'ADMIN' ? '/admin' : role === 'HOTEL_STAFF' ? '/hotel' : '/');
 
 function Guard({ role, children }: { role: Role; children: React.ReactNode }) {
-  const { userId, signOut } = useSession();
+  const { userId } = useSession();
   const me = useMe();
   if (userId == null) return <Navigate to="/login" replace />;
   if (me.isLoading) return <div className="main"><Loading /></div>;
-  if (me.error || !me.data) { signOut(); return <Navigate to="/login" replace />; }
+  if (me.error || !me.data) return <Navigate to="/login" replace />;
   if (me.data.role !== role) return <Navigate to={home(me.data.role)} replace />;
   return <>{children}</>;
-}
-
-function Landing() {
-  const { userId } = useSession();
-  const me = useMe();
-  if (userId == null) return <Navigate to="/login" replace />;
-  if (!me.data) return <div className="main"><Loading /></div>;
-  return <Navigate to={home(me.data.role)} replace />;
 }
 
 export default function App() {
   return (
     <Routes>
+      <Route element={<GuestShell />}>
+        <Route index element={<Search />} />
+        <Route path="/offers/:bidId" element={<Offers />} />
+        <Route path="/checkout/:bookingId" element={<Checkout />} />
+        <Route path="/trips" element={<Trips />} />
+      </Route>
       <Route path="/login" element={<Login />} />
       <Route path="/hotel" element={<Guard role="HOTEL_STAFF"><HotelShell /></Guard>}>
         <Route index element={<Navigate to="requests" replace />} />
@@ -65,7 +66,7 @@ export default function App() {
         <Route path="bookings" element={<AdminBookings />} />
         <Route path="bids" element={<AdminBids />} />
       </Route>
-      <Route path="*" element={<Landing />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

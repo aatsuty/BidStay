@@ -30,6 +30,8 @@ public class Booking {
     @Enumerated(EnumType.STRING)
     private BookingStatus status;
     private Instant holdExpiresAt;
+    private Instant freeCancelUntil;
+    private Instant cancelledAt;
     private String paymentRef;
     private Instant createdAt;
     @Version

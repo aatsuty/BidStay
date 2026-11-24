@@ -11,6 +11,11 @@ public class BookingController {
 
     private final BookingService service;
 
+    @PostMapping("/{bookingId}/cancel")
+    public BookingView cancel(@CallerId(guestOnly = true) Long userId, @PathVariable Long bookingId) {
+        return service.cancel(userId, bookingId);
+    }
+
     @GetMapping("/{bookingId}")
     public BookingView get(@CallerId(guestOnly = true) Long userId, @PathVariable Long bookingId) {
         return service.get(userId, bookingId);

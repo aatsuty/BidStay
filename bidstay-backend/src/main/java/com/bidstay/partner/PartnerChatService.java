@@ -1,6 +1,7 @@
 package com.bidstay.partner;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -9,17 +10,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * The hotel's WhatsApp conversation with BidStay. This is the single place that writes to it.
- * To go live on real WhatsApp, add a gateway call inside bot(): the stored message is sent to the
- * hotel's WhatsApp number, and the inbound webhook calls PartnerService.handleChatText().
- */
+/** Persists the partner inbox and its linked WhatsApp conversation. */
 @Service
 @RequiredArgsConstructor
 public class PartnerChatService {
 
     private final PartnerMessageRepository repo;
     private final Clock clock;
+    private final JdbcTemplate jdbc;
 
     @Transactional
     public PartnerMessage bot(Long hotelId, PartnerMessage.Kind kind, String body, Long offerId) {
@@ -29,6 +27,14 @@ public class PartnerChatService {
     @Transactional
     public PartnerMessage hotelSays(Long hotelId, String body) {
         return save(hotelId, PartnerMessage.Sender.HOTEL, PartnerMessage.Kind.REPLY, body, null);
+    }
+
+    public void whatsappSays(long hotelId, long offerId, String messageId, String body) {
+        jdbc.update("""
+                insert into partner_messages (hotel_id, sender, kind, body, bid_offer_id, created_at, channel, provider_message_id)
+                values (?, 'HOTEL', 'REPLY', ?, ?, now(), 'WHATSAPP', ?)
+                on conflict (provider_message_id) do nothing
+                """, hotelId, body, offerId, messageId);
     }
 
     /** afterId = 0 returns the latest 100 messages, oldest first. Otherwise only newer messages. */

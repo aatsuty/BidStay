@@ -11,9 +11,12 @@ import com.bidstay.common.Money;
 import com.bidstay.hotel.HotelRepository;
 import com.bidstay.partner.PartnerChatService;
 import com.bidstay.partner.PartnerMessage;
+import com.bidstay.whatsapp.WhatsAppNotifications;
 import com.bidstay.user.UserRepository;
 import com.bidstay.inventory.InventoryService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +25,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
@@ -36,6 +41,9 @@ public class BookingService {
     private final UserRepository users;
     private final BidStayProperties props;
     private final Clock clock;
+    private final WhatsAppNotifications whatsapp;
+    private final JdbcTemplate jdbc;
+    @Value("${bidstay.booking.free-cancellation:false}") private boolean freeCancellation;
 
     /** Called by BidService inside its transaction: hold rooms and create the unpaid booking atomically. */
     @Transactional(propagation = Propagation.MANDATORY)
@@ -65,24 +73,22 @@ public class BookingService {
         b.setCommissionAmount(commission);
         b.setStatus(BookingStatus.PENDING_PAYMENT);
         b.setHoldExpiresAt(now.plus(props.paymentHold()));
+        b.setFreeCancelUntil(cancellationDeadline(bid.getCheckIn()));
         b.setCreatedAt(now);
         return bookings.save(b);
     }
 
     /**
-     * Called when payment succeeds. Today: a dev-only endpoint. Later: the Razorpay webhook
-     * (after verifying its signature). Idempotent: webhooks are delivered more than once.
+     * Called for a verified Razorpay capture or a local demo payment.
      */
     @Transactional
     public BookingView confirmPayment(Long bookingId, String paymentRef) {
-        Booking b = bookings.findById(bookingId).orElseThrow(() -> ApiException.notFound("Booking"));
+        Booking b = bookings.lockById(bookingId).orElseThrow(() -> ApiException.notFound("Booking"));
 
         if (b.getStatus() == BookingStatus.CONFIRMED && paymentRef.equals(b.getPaymentRef())) {
             return toView(b);   // duplicate webhook
         }
-        // If the hold timed out but the expiry job has not run yet, the rooms are still ours, so we
-        // accept the payment. Once the job has marked it EXPIRED the rooms are released: a payment
-        // arriving after that must be refunded (TODO when payments are integrated).
+        // The payment handler checks the hold deadline before applying a provider capture.
         if (b.getStatus() != BookingStatus.PENDING_PAYMENT) {
             throw ApiException.conflict("Booking is " + b.getStatus() + " and cannot be paid");
         }
@@ -93,13 +99,45 @@ public class BookingService {
 
         // Guest contact is revealed to the hotel only now, after payment.
         String guest = users.findById(b.getGuestId()).map(u -> u.getName() + ", +91 " + u.getPhone()).orElse("guest");
-        chat.bot(b.getHotelId(), PartnerMessage.Kind.SYSTEM,
+        var message = chat.bot(b.getHotelId(), PartnerMessage.Kind.SYSTEM,
                 "*Booking confirmed* #" + b.getId() + "\n" + b.getCheckIn() + " to " + b.getCheckOut() + " · " + b.getRooms()
                         + " room(s) at " + Money.inr(b.getPricePerNight()) + " per night\n"
                         + "Total " + Money.inr(b.getTotalAmount()) + " · BidStay commission " + Money.inr(b.getCommissionAmount())
                         + " · Your payout " + Money.inr(b.getTotalAmount().subtract(b.getCommissionAmount())) + "\n"
                         + "Guest: " + guest, null);
+        whatsapp.booked(b.getGuestId(), b.getHotelId(), b.getId(), message.getId());
         return toView(b);
+    }
+
+    public Instant cancellationDeadline(LocalDate checkIn) {
+        if (!freeCancellation) return null;
+        return checkIn.minusDays(1).atTime(12, 0).atZone(ZoneId.of("Asia/Kolkata")).toInstant();
+    }
+
+    @Transactional
+    public BookingView cancel(Long guestId, Long bookingId) {
+        Booking booking = bookings.lockById(bookingId).filter(b -> b.getGuestId().equals(guestId))
+                .orElseThrow(() -> ApiException.notFound("Booking"));
+        if (booking.getStatus() == BookingStatus.CANCELLED) return toView(booking);
+        Instant now = clock.instant();
+        if (booking.getStatus() == BookingStatus.PENDING_PAYMENT) {
+            inventory.release(booking.getRoomTypeId(), booking.getCheckIn(), booking.getCheckOut(), booking.getRooms());
+        } else if (booking.getStatus() == BookingStatus.CONFIRMED && booking.getFreeCancelUntil() != null
+                && booking.getFreeCancelUntil().isAfter(now)) {
+            inventory.cancelSale(booking.getRoomTypeId(), booking.getCheckIn(), booking.getCheckOut(), booking.getRooms());
+            jdbc.update("""
+                    update payment_captures set status = 'REFUND_PENDING', retry_at = now()
+                    where booking_id = ? and status = 'APPLIED'
+                    """, bookingId);
+        } else {
+            throw ApiException.conflict("This booking is outside its cancellation window");
+        }
+
+        booking.setStatus(BookingStatus.CANCELLED);
+        booking.setCancelledAt(now);
+        bids.findById(booking.getBidRequestId()).ifPresent(bid -> bid.setStatus(BidStatus.CANCELLED));
+        chat.bot(booking.getHotelId(), PartnerMessage.Kind.SYSTEM, "Booking #" + bookingId + " was cancelled.", null);
+        return toView(booking);
     }
 
     /** Scheduler: guest never paid, so give the rooms back. */
@@ -135,7 +173,14 @@ public class BookingService {
             name = h.getName();
             address = h.getAddress();
         }
+        String refundStatus = null;
+        if (b.getStatus() == BookingStatus.CANCELLED || b.getStatus() == BookingStatus.EXPIRED) {
+            refundStatus = jdbc.query("""
+                    select status from payment_captures where booking_id = ? and status like 'REFUND_%'
+                    order by captured_at desc limit 1
+                    """, (rs, row) -> rs.getString(1), b.getId()).stream().findFirst().orElse(null);
+        }
         return new BookingView(b.getId(), b.getStatus(), b.getCheckIn(), b.getCheckOut(), b.getRooms(),
-                b.getPricePerNight(), b.getTotalAmount(), b.getHoldExpiresAt(), name, address);
+                b.getPricePerNight(), b.getTotalAmount(), b.getHoldExpiresAt(), name, address, b.getFreeCancelUntil(), refundStatus);
     }
 }

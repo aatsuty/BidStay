@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Chip, Empty, ErrorText, Field, Loading } from '@/components/ui';
 import { ApiError, errorMessage, useApi } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -25,15 +25,23 @@ export default function HotelsScreen() {
   const qc = useQueryClient();
   const nights = nightsBetween(p.checkIn, p.checkOut);
 
-  const hotelsQuery = useQuery({
-    queryKey: ['hotels', p.city, p.category, baseUrl],
-    queryFn: () => api.get<HotelSummary[]>(`/api/v1/hotels?city=${encodeURIComponent(p.city)}&category=${p.category}`),
+  const hotelsQuery = useInfiniteQuery({
+    queryKey: ['hotels', baseUrl, p.city, p.category, p.checkIn, p.checkOut, p.rooms, p.guests],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({
+        city: p.city, checkIn: p.checkIn, checkOut: p.checkOut, category: p.category,
+        rooms: p.rooms, guests: p.guests, after: String(pageParam),
+      });
+      return api.get<{ hotels: HotelSummary[]; nextCursor?: number }>(`/api/v1/hotels/search?${params}`);
+    },
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   });
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [price, setPrice] = useState('');
 
-  const hotels = hotelsQuery.data ?? NO_HOTELS;
+  const hotels = useMemo(() => hotelsQuery.data?.pages.flatMap((page) => page.hotels) ?? NO_HOTELS, [hotelsQuery.data]);
   const chosen = hotels.filter((h) => selected.has(h.id));
 
   // Price guide: average listed price of the hotels in play. (Later: real market data from past bids.)
@@ -62,7 +70,7 @@ export default function HotelsScreen() {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else if (next.size < 50) next.add(id);
       return next;
     });
   }
@@ -99,7 +107,7 @@ export default function HotelsScreen() {
             <Text style={{ fontWeight: '700', color: colors.text }}>
               {chosen.length} of {hotels.length} selected
             </Text>
-            <Pressable onPress={() => setSelected(chosen.length === hotels.length ? new Set() : new Set(hotels.map((h) => h.id)))}>
+            <Pressable onPress={() => setSelected(chosen.length === hotels.length ? new Set() : new Set(hotels.slice(0, 50).map((h) => h.id)))}>
               <Text style={{ color: colors.primary, fontWeight: '700' }}>{chosen.length === hotels.length ? 'Clear all' : 'Select all'}</Text>
             </Pressable>
           </View>
@@ -142,6 +150,8 @@ export default function HotelsScreen() {
             </Pressable>
           );
         })}
+        {hotelsQuery.hasNextPage && <Button title="Load more hotels" variant="ghost" loading={hotelsQuery.isFetchingNextPage}
+          onPress={() => { void hotelsQuery.fetchNextPage(); }} />}
       </ScrollView>
 
       {hotels.length > 0 && (

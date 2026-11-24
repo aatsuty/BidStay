@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import type { HotelOffer, MyHotel } from '../../lib/types';
@@ -14,7 +14,16 @@ export default function HotelShell() {
   const api = useApi();
   const nav = useNavigate();
   const loc = useLocation();
-  const { signOut } = useSession();
+  const { token, signOut } = useSession();
+  const qc = useQueryClient();
+  async function leave() {
+    try { if (token) await api.post('/api/v1/auth/logout'); }
+    finally {
+      qc.clear();
+      signOut();
+      nav('/login');
+    }
+  }
   const me = useMe();
   const [picked, setPicked] = useState<number | null>(() => Number(localStorage.getItem(KEY)) || null);
 
@@ -57,7 +66,7 @@ export default function HotelShell() {
             </select>
             <div style={{ marginTop: 8 }}><NavLink to="register" className="small" style={{ color: '#a5b4fc' }}>+ Register another hotel</NavLink></div>
             <div style={{ marginTop: 14 }} className="small">{me.data?.name}</div>
-            <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { signOut(); nav('/login'); }}>Sign out</button>
+            <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { void leave().catch(() => undefined); }}>Sign out</button>
           </div>
         </aside>
         <main className="main">

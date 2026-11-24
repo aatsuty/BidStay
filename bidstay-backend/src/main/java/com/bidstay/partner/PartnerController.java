@@ -4,13 +4,19 @@ import com.bidstay.auth.CallerId;
 import com.bidstay.bidding.BidDtos.HotelOfferView;
 import com.bidstay.bidding.BidDtos.HotelRespond;
 import com.bidstay.hotel.DocType;
+import com.bidstay.hotel.HotelDocumentFiles;
 import com.bidstay.partner.PartnerDtos.*;
 import com.bidstay.user.AccessService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.multipart.MultipartFile;
+import com.bidstay.common.ApiException;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -24,6 +30,8 @@ public class PartnerController {
 
     private final PartnerService service;
     private final AccessService access;
+    private final HotelDocumentFiles files;
+    private final Environment environment;
 
     @GetMapping("/hotels")
     public List<MyHotel> myHotels(@CallerId Long userId) {
@@ -110,10 +118,19 @@ public class PartnerController {
         return service.documents(hotelId);
     }
 
+    @PostMapping(value = "/hotels/{hotelId}/documents/{type}/file", consumes = "multipart/form-data")
+    public List<DocumentView> upload(@CallerId Long userId, @PathVariable Long hotelId,
+                                     @PathVariable DocType type, @RequestParam MultipartFile file) throws IOException {
+        access.requireHotelAccess(userId, hotelId);
+        files.upload(userId, hotelId, type, file);
+        return service.documents(hotelId);
+    }
+
     @PutMapping("/hotels/{hotelId}/documents/{type}")
     public List<DocumentView> submitDocument(@CallerId Long userId, @PathVariable Long hotelId,
                                              @PathVariable DocType type, @Valid @RequestBody DocumentInput body) {
         access.requireHotelAccess(userId, hotelId);
+        if (!environment.acceptsProfiles(Profiles.of("dev"))) throw ApiException.invalid("Upload the document file");
         return service.submitDocument(hotelId, type, body.reference());
     }
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/api';
 import { fmtDateTime } from '../../lib/format';
-import type { AdminHotel, DocType, HotelStatus } from '../../lib/types';
+import type { AdminHotel, DocumentView, HotelStatus } from '../../lib/types';
 import { DOC_LABEL, ErrorBox, HotelStatusBadge, Loading, PageHead } from '../../components/ui';
 
 const FILTERS: [HotelStatus | 'ALL', string][] = [['PENDING_VERIFICATION', 'Awaiting approval'], ['ACTIVE', 'Live'], ['REJECTED', 'Not approved'], ['SUSPENDED', 'Suspended'], ['ALL', 'All']];
@@ -10,7 +10,17 @@ const FILTERS: [HotelStatus | 'ALL', string][] = [['PENDING_VERIFICATION', 'Awai
 export default function AdminHotels() {
   const api = useApi();
   const [filter, setFilter] = useState<HotelStatus | 'ALL'>('PENDING_VERIFICATION');
-  const q = useQuery({ queryKey: ['adminHotels', filter], queryFn: () => api.get<AdminHotel[]>('/api/v1/admin/hotels' + (filter === 'ALL' ? '' : `?status=${filter}`)) });
+  const q = useInfiniteQuery({
+    queryKey: ['adminHotels', filter], initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams();
+      if (filter !== 'ALL') params.set('status', filter);
+      if (pageParam) params.set('before', String(pageParam));
+      return api.get<{ hotels: AdminHotel[]; nextCursor?: number }>('/api/v1/admin/hotels/page?' + params);
+    },
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+  const hotels = q.data?.pages.flatMap((page) => page.hotels);
   return (
     <>
       <PageHead title="Hotels" sub="Approve a hotel only after all four documents are verified." />
@@ -19,8 +29,10 @@ export default function AdminHotels() {
       </div>
       <ErrorBox error={q.error} />
       {q.isLoading && <Loading />}
-      {q.data && !q.data.length && <div className="card muted">No hotels in this list.</div>}
-      {q.data?.map((h) => <HotelCard key={h.id} h={h} />)}
+      {hotels && !hotels.length && <div className="card muted">No hotels in this list.</div>}
+      {hotels?.map((h) => <HotelCard key={h.id} h={h} />)}
+      {q.hasNextPage && <button className="btn ghost" style={{ marginTop: 14 }} disabled={q.isFetchingNextPage}
+        onClick={() => { void q.fetchNextPage(); }}>Load more hotels</button>}
     </>
   );
 }
@@ -32,7 +44,19 @@ function HotelCard({ h }: { h: AdminHotel }) {
   const [rejecting, setRejecting] = useState(false);
   const done = () => { qc.invalidateQueries({ queryKey: ['adminHotels'] }); qc.invalidateQueries({ queryKey: ['adminStats'] }); };
   const act = useMutation({ mutationFn: (path: string) => api.post<AdminHotel>(`/api/v1/admin/hotels/${h.id}/${path}`, path === 'reject' ? { reason } : {}), onSuccess: () => { setRejecting(false); setReason(''); done(); } });
-  const verify = (t: DocType, on: boolean) => act.mutate(`documents/${t}/${on ? 'verify' : 'unverify'}`);
+  const verify = (doc: DocumentView, on: boolean) =>
+    act.mutate(`documents/${doc.type}/${on ? 'verify' : 'unverify'}${doc.versionId ? '?versionId=' + doc.versionId : ''}`);
+  const download = useMutation({
+    mutationFn: async (doc: DocumentView) => {
+      const bytes = await api.download(`/api/v1/admin/hotels/${h.id}/documents/${doc.type}/files/${doc.versionId}`);
+      const url = URL.createObjectURL(bytes);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = doc.reference ?? 'document';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+  });
   const verified = h.documents.filter((d) => d.verified).length;
 
   return (
@@ -42,7 +66,7 @@ function HotelCard({ h }: { h: AdminHotel }) {
         <HotelStatusBadge status={h.status} />
       </div>
       {h.rejectionReason && <div className="error" style={{ marginTop: 10 }}>Rejected: {h.rejectionReason}</div>}
-      <ErrorBox error={act.error} />
+      <ErrorBox error={act.error ?? download.error} />
       <div style={{ marginTop: 12 }}>
         <div className="muted small bold" style={{ marginBottom: 4 }}>Documents · {verified} of {h.documents.length} verified</div>
         {h.documents.map((d) => (
@@ -50,9 +74,10 @@ function HotelCard({ h }: { h: AdminHotel }) {
             <div style={{ width: 170 }}><b>{DOC_LABEL[d.type]}</b></div>
             <span className={'badge ' + (d.verified ? 'ok' : d.submitted ? 'warn' : 'bad')} style={{ width: 118, textAlign: 'center' }}>{d.verified ? '✓ Verified' : d.submitted ? 'To verify' : 'Missing'}</span>
             <div className="grow muted small" style={{ wordBreak: 'break-all' }}>{d.reference ?? 'Not submitted yet'}</div>
+            {d.versionId && <button className="btn ghost sm" disabled={download.isPending} onClick={() => download.mutate(d)}>Download file</button>}
             {d.submitted && (d.verified
-              ? <button className="btn ghost sm" disabled={act.isPending} onClick={() => verify(d.type, false)}>Undo</button>
-              : <button className="btn soft sm" disabled={act.isPending} onClick={() => verify(d.type, true)}>Mark verified</button>)}
+              ? <button className="btn ghost sm" disabled={act.isPending} onClick={() => verify(d, false)}>Undo</button>
+              : <button className="btn soft sm" disabled={act.isPending} onClick={() => verify(d, true)}>Mark verified</button>)}
           </div>
         ))}
       </div>

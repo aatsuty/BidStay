@@ -1,6 +1,7 @@
 package com.bidstay.bidding;
 
 import com.bidstay.bidding.BidDtos.*;
+import com.bidstay.whatsapp.WhatsAppNotifications;
 import com.bidstay.booking.Booking;
 import com.bidstay.booking.BookingService;
 import com.bidstay.booking.BookingView;
@@ -47,6 +48,7 @@ public class BidService {
     private final PartnerChatService chat;
     private final BidStayProperties props;
     private final Clock clock;
+    private final WhatsAppNotifications whatsapp;
 
     // ------------------------------------------------------------------ guest side
 
@@ -175,7 +177,7 @@ public class BidService {
             if (o.getExpiresAt() == null || !o.getExpiresAt().isAfter(now)) continue;
             BidRequest bid = bids.findById(o.getBidRequestId()).orElseThrow();
             RoomType rt = roomTypes.findById(o.getRoomTypeId()).orElseThrow();
-            out.add(new HotelOfferView(o.getId(), rt.getName(), bid.getPricePerNight(), rt.getListedPrice(),
+            out.add(new HotelOfferView(o.getId(), rt.getName(), bid.getPricePerNight(), rt.getListedPrice(), rt.getMinPrice(),
                     bid.getCheckIn(), bid.getCheckOut(), bid.getRooms(), bid.nights(), o.getRound(), o.getExpiresAt()));
         }
         return out;
@@ -197,6 +199,10 @@ public class BidService {
 
         switch (cmd.action()) {
             case ACCEPT -> {
+                RoomType room = roomTypes.findById(offer.getRoomTypeId()).orElseThrow();
+                if (bid.getPricePerNight().compareTo(room.getMinPrice()) < 0) {
+                    throw ApiException.invalid("This bid is below your minimum price");
+                }
                 offer.setStatus(OfferStatus.ACCEPTED);
                 offer.setOfferedPrice(bid.getPricePerNight());
             }
@@ -204,6 +210,7 @@ public class BidService {
                 RoomType rt = roomTypes.findById(offer.getRoomTypeId()).orElseThrow();
                 BigDecimal c = cmd.counterPrice();
                 if (c == null || c.compareTo(bid.getPricePerNight()) <= 0) throw ApiException.invalid("Counter must be higher than the guest's bid");
+                if (c.compareTo(rt.getMinPrice()) < 0) throw ApiException.invalid("Counter cannot be below your minimum price");
                 if (c.compareTo(rt.getListedPrice()) > 0) throw ApiException.invalid("Counter cannot exceed the listed price");
                 offer.setStatus(OfferStatus.COUNTERED);
                 offer.setOfferedPrice(c);
@@ -218,6 +225,10 @@ public class BidService {
             case DECLINE -> "declined this bid";
         };
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "Recorded: you " + what + ".", offer.getId());
+        if (OfferStatus.BOOKABLE.contains(offer.getStatus())) {
+            whatsapp.guestOffer(bid.getGuestId(), bid.getId(), offer.getId(), offer.getRound(),
+                    offer.getOfferedPrice(), bid.getExpiresAt());
+        }
         return offer.getStatus();
     }
 
@@ -312,7 +323,7 @@ public class BidService {
                 BigDecimal below = BigDecimal.ONE.subtract(bid.getPricePerNight().divide(rt.getListedPrice(), 4, RoundingMode.HALF_UP))
                         .multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP);
                 String reference = o.getId() + "/" + o.getRound();
-                chat.bot(hotelId, PartnerMessage.Kind.REQUEST,
+                var message = chat.bot(hotelId, PartnerMessage.Kind.REQUEST,
                         "*New bid request* (round " + bid.getRound() + ")\n"
                                 + Money.inr(bid.getPricePerNight()) + " per night for " + rt.getName() + "\n"
                                 + bid.getCheckIn() + " to " + bid.getCheckOut() + " · " + nights + " night" + (nights > 1 ? "s" : "")
@@ -322,6 +333,8 @@ public class BidService {
                                 + suggest.toBigInteger() + " " + reference + "*.\n"
                                 + "Please reply within " + props.offerResponseWindow().toMinutes() + " minutes.",
                         o.getId());
+                whatsapp.hotelBid(hotelId, message.getId(), o.getId(), o.getRound(), bid.getPricePerNight(),
+                        bid.getCheckIn(), bid.getCheckOut(), bid.getRooms(), o.getExpiresAt());
             }
             case ACCEPTED -> {
                 if (o.isAutoAccepted()) chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
@@ -337,6 +350,9 @@ public class BidService {
                         "Auto-declined " + Money.inr(bid.getPricePerNight()) + ", below your minimum.", o.getId());
             }
             default -> { /* UNAVAILABLE etc.: nothing to tell the hotel */ }
+        }
+        if (OfferStatus.BOOKABLE.contains(o.getStatus())) {
+            whatsapp.guestOffer(bid.getGuestId(), bid.getId(), o.getId(), o.getRound(), o.getOfferedPrice(), bid.getExpiresAt());
         }
     }
 
@@ -374,6 +390,6 @@ public class BidService {
 
         return new BidView(bid.getId(), bid.getStatus(), bid.getRound(), props.maxRounds(), bid.getPricePerNight(),
                 bid.getCheckIn(), bid.getCheckOut(), bid.getRooms(), bid.getExpiresAt(),
-                bookingService.latestBookingIdForBid(bid.getId()), views);
+                bookingService.latestBookingIdForBid(bid.getId()), bookingService.cancellationDeadline(bid.getCheckIn()), views);
     }
 }

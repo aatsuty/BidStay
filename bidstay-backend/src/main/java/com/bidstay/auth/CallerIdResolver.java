@@ -40,10 +40,12 @@ class CallerIdResolver implements HandlerMethodArgumentResolver, WebMvcConfigure
     public Long resolveArgument(MethodParameter parameter, ModelAndViewContainer container,
                                 NativeWebRequest request, WebDataBinderFactory binderFactory) {
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        CallerId policy = parameter.getParameterAnnotation(CallerId.class);
+        if (policy.verifiedOnly() && authorization == null) throw AuthService.signInRequired();
         Long id = authorization == null
                 ? demoUserId(request.getHeader("X-User-Id"))
                 : auth.sessionUserId(authorization);
-        if (parameter.getParameterAnnotation(CallerId.class).guestOnly() && access.user(id).getRole() != Role.GUEST) {
+        if (policy.guestOnly() && access.user(id).getRole() != Role.GUEST) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Guest accounts only");
         }
         return id;
