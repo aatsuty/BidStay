@@ -1,6 +1,5 @@
 package com.bidstay.auth;
 
-import com.bidstay.user.AccessService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -15,17 +14,32 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
 class StaffAuthController {
-    private final AccessService access;
     private final AuthService auth;
     private final StaffSignIn staff;
     private final AdminSignIn admin;
 
     @PostMapping("/partner/hotels/{hotelId}/invites")
     ResponseEntity<StaffSignIn.Invitation> invite(@CallerId Long caller, @PathVariable Long hotelId,
-                                                 @Valid @RequestBody AuthController.SendCode body) {
-        access.requireHotelAccess(caller, hotelId);
+                                                 @Valid @RequestBody InviteStaff body) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(staff.invite(caller, hotelId, body.phone()));
+                .body(staff.invite(caller, hotelId, body.phone(), body.manager()));
+    }
+
+    @GetMapping("/partner/hotels/{hotelId}/staff")
+    ResponseEntity<StaffSignIn.Team> team(@CallerId Long caller, @PathVariable Long hotelId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(staff.team(caller, hotelId));
+    }
+
+    @DeleteMapping("/partner/hotels/{hotelId}/invites/{invitationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void revokeInvite(@CallerId Long caller, @PathVariable Long hotelId, @PathVariable long invitationId) {
+        staff.revokeInvite(caller, hotelId, invitationId);
+    }
+
+    @DeleteMapping("/partner/hotels/{hotelId}/staff/{staffId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void removeStaff(@CallerId Long caller, @PathVariable Long hotelId, @PathVariable Long staffId) {
+        staff.removeMember(caller, hotelId, staffId);
     }
 
     @PostMapping("/auth/staff/code")
@@ -46,6 +60,8 @@ class StaffAuthController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(admin.signIn(body.phone(), body.password(), body.code()));
     }
+
+    record InviteStaff(@NotBlank @Pattern(regexp = "[6-9][0-9]{9}") String phone, boolean manager) {}
 
     record VerifyStaff(@NotBlank @Pattern(regexp = "[6-9][0-9]{9}") String phone,
                        @NotBlank @Pattern(regexp = "[0-9]{6}") String code,

@@ -5,6 +5,7 @@ import { useApi } from '../../lib/api';
 import type { DocType, DocumentView } from '../../lib/types';
 import { DOC_LABEL, ErrorBox, HotelStatusBadge, Loading, PageHead } from '../../components/ui';
 import { useHotel } from './HotelContext';
+import StaffAccess from './StaffAccess';
 
 export default function Profile() {
   const { hotel } = useHotel();
@@ -48,32 +49,7 @@ export default function Profile() {
           </div>
         ))}
       </div>
-      <StaffInvites key={hotel.id} hotelId={hotel.id} />
+      <StaffAccess key={hotel.id} hotelId={hotel.id} />
     </>
   );
-}
-
-
-function StaffInvites({ hotelId }: { hotelId: number }) {
-  const api = useApi();
-  const [phone, setPhone] = useState('');
-  const [copied, setCopied] = useState(false);
-  const invite = useMutation({
-    mutationFn: () => api.post<{ token: string }>(`/api/v1/partner/hotels/${hotelId}/invites`, { phone }),
-    onSuccess: () => setCopied(false),
-  });
-  const link = invite.data ? window.location.origin + '/login#invite=' + invite.data.token : '';
-  return <section className="card">
-    <h2>Invite hotel staff</h2>
-    <p className="muted small">The invitation is valid for 48 hours and only works for this hotel and phone number.</p>
-    <form className="row wrap" onSubmit={(event) => { event.preventDefault(); invite.mutate(); }}>
-      <label className="field">Mobile number (+91)<input className="input" required pattern="[6-9][0-9]{9}" inputMode="numeric" maxLength={10} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
-      <button className="btn" style={{ alignSelf: 'flex-end' }} disabled={invite.isPending}>Create invitation</button>
-    </form>
-    <ErrorBox error={invite.error} />
-    {link && <div className="row wrap" style={{ marginTop: 10 }}>
-      <label className="field grow">Invitation link<input className="input" value={link} readOnly onFocus={(event) => event.currentTarget.select()} /></label>
-      <button className="btn ghost" style={{ alignSelf: 'flex-end' }} onClick={() => { void navigator.clipboard?.writeText(link).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? 'Copied' : 'Copy link'}</button>
-    </div>}
-  </section>;
 }

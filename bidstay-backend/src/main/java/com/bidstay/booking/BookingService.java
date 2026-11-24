@@ -1,5 +1,7 @@
 package com.bidstay.booking;
 
+import com.bidstay.audit.AuditTrail;
+import com.bidstay.audit.AuditTrail.Action;
 import com.bidstay.bidding.BidOffer;
 import com.bidstay.bidding.BidRequest;
 import com.bidstay.bidding.BidRequestRepository;
@@ -44,6 +46,7 @@ public class BookingService {
     private final Clock clock;
     private final WhatsAppNotifications whatsapp;
     private final GuestAlerts alerts;
+    private final AuditTrail audit;
     private final JdbcTemplate jdbc;
     @Value("${bidstay.booking.free-cancellation:false}") private boolean freeCancellation;
 
@@ -128,10 +131,11 @@ public class BookingService {
         } else if (booking.getStatus() == BookingStatus.CONFIRMED && booking.getFreeCancelUntil() != null
                 && booking.getFreeCancelUntil().isAfter(now)) {
             inventory.cancelSale(booking.getRoomTypeId(), booking.getCheckIn(), booking.getCheckOut(), booking.getRooms());
-            jdbc.update("""
+            int queued = jdbc.update("""
                     update payment_captures set status = 'REFUND_PENDING', retry_at = now()
                     where booking_id = ? and status = 'APPLIED'
                     """, bookingId);
+            if (queued > 0) audit.record(guestId, Action.REFUND_QUEUED, bookingId, booking.getHotelId());
         } else {
             throw ApiException.conflict("This booking is outside its cancellation window");
         }
@@ -141,6 +145,7 @@ public class BookingService {
         bids.findById(booking.getBidRequestId()).ifPresent(bid -> bid.setStatus(BidStatus.CANCELLED));
         chat.bot(booking.getHotelId(), PartnerMessage.Kind.SYSTEM, "Booking #" + bookingId + " was cancelled.", null);
         alerts.booking(booking.getGuestId(), bookingId, "CANCELLED");
+        audit.record(guestId, Action.BOOKING_CANCELLED, bookingId, booking.getHotelId());
         return toView(booking);
     }
 

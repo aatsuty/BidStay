@@ -14,6 +14,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.Clock;
+import java.sql.Timestamp;
 import java.util.Locale;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -27,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -47,6 +50,7 @@ class GuestAuthIT {
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
     @Autowired AuthService auth;
+    @Autowired Clock clock;
     @Autowired com.bidstay.user.UserRepository users;
     @MockBean PhoneVerifier verifier;
 
@@ -122,7 +126,7 @@ class GuestAuthIT {
         long owner = jdbc.queryForObject("""
                 insert into users (phone, name, role) values ('9876500070', 'Host', 'HOTEL_STAFF') returning id
                 """, Long.class);
-        jdbc.update("insert into hotel_staff(user_id, hotel_id) values (?, ?)", owner, hotel);
+        jdbc.update("insert into hotel_staff(user_id, hotel_id, can_manage_staff) values (?, ?, true)", owner, hotel);
         String ownerAuthorization = "Bearer " + auth.issueSession(users.findById(owner).orElseThrow()).token();
         String phone = "9876500071";
         when(verifier.send(phone)).thenReturn("VEinvited");
@@ -146,7 +150,93 @@ class GuestAuthIT {
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(hotel));
         mvc.perform(get("/api/v1/partner/hotels/{id}/offers", other).header("Authorization", staffAuthorization))
                 .andExpect(status().isForbidden());
-        assertEquals(1, jdbc.queryForObject("select count(*) from staff_invites where accepted_at is not null", Integer.class));
+        assertEquals(1, jdbc.queryForObject("select count(*) from staff_invites where hotel_id = ? and accepted_at is not null", Integer.class, hotel));
+    }
+
+    @Test
+    void managersCanRemoveStaffAndRevokeInvitesButCannotGrantManagerAccess() throws Exception {
+        long hotel = addHotel("Security Test Hotel");
+        long secondary = addHotel("Unrelated Staff Property");
+        long manager = addUser("9876500180", "Property Manager", "HOTEL_STAFF");
+        long member = addUser("9876500181", "Front Desk User", "HOTEL_STAFF");
+        long admin = addUser("9876500182", "Security Reviewer", "ADMIN");
+        jdbc.update("insert into hotel_staff(user_id, hotel_id, can_manage_staff) values (?, ?, true)", manager, hotel);
+        jdbc.update("insert into hotel_staff(user_id, hotel_id) values (?, ?), (?, ?)", member, hotel, member, secondary);
+        String managerToken = bearer(manager);
+        String staffToken = bearer(member);
+        String adminToken = bearer(admin);
+        String path = "/api/v1/partner/hotels/" + hotel;
+        String staffPhone = "9876500183";
+
+        mvc.perform(get(path + "/staff").header("Authorization", staffToken)).andExpect(status().isForbidden());
+        mvc.perform(post(path + "/invites").header("Authorization", managerToken).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of("phone", staffPhone, "manager", true))))
+                .andExpect(status().isForbidden());
+
+        String invitation = mvc.perform(post(path + "/invites").header("Authorization", managerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(java.util.Map.of("phone", staffPhone))))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String secret = json.readTree(invitation).path("token").asText();
+        String roster = mvc.perform(get(path + "/staff").header("Authorization", managerToken)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.invitations[0].token").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        long inviteId = json.readTree(roster).path("invitations").get(0).path("id").asLong();
+        mvc.perform(delete(path + "/invites/{inviteId}", inviteId).header("Authorization", managerToken))
+                .andExpect(status().isNoContent());
+        when(verifier.send(staffPhone)).thenReturn("VErevoked");
+        when(verifier.verify("VErevoked", "123456")).thenReturn(true);
+        mvc.perform(post("/api/v1/auth/staff/code").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of("phone", staffPhone)))).andExpect(status().isNoContent());
+        mvc.perform(post("/api/v1/auth/staff/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of("phone", staffPhone, "code", "123456", "invite", secret))))
+                .andExpect(status().isForbidden());
+
+        jdbc.update("insert into whatsapp_consents(user_id, hotel_id, enabled) values (?, ?, true)", member, hotel);
+        mvc.perform(delete(path + "/staff/{id}", member).header("Authorization", managerToken))
+                .andExpect(status().isNoContent());
+        mvc.perform(get(path + "/offers").header("Authorization", staffToken)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/partner/hotels/{id}/offers", secondary).header("Authorization", staffToken))
+                .andExpect(status().isOk());
+        assertEquals(false, jdbc.queryForObject("select enabled from whatsapp_consents where hotel_id = ? and user_id = ?",
+                Boolean.class, hotel, member));
+
+        mvc.perform(delete("/api/v1/partner/hotels/{id}/staff/{id2}", secondary, member)
+                .header("Authorization", adminToken)).andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/me").header("Authorization", staffToken)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/audit").header("Authorization", managerToken)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/audit").header("Authorization", adminToken)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.events[0].action").value("STAFF_REMOVED"))
+                .andExpect(jsonPath("$.events[0].actorId").value(admin))
+                .andExpect(jsonPath("$.events[1].hotelId").value(hotel))
+                .andExpect(jsonPath("$.events[2].action").value("INVITE_REVOKED"))
+                .andExpect(jsonPath("$.events[3].action").value("INVITE_CREATED"));
+    }
+
+    @Test
+    void otpRateLimitsShareCapacityAcrossRoutesAndIgnoreUntrustedForwarding() throws Exception {
+        long nextWindow = (clock.instant().getEpochSecond() / 600 + 1) * 600;
+        jdbc.update("""
+                insert into auth_rate_limits(scope, client, window_end, hits)
+                values ('otp-send', '2001:db8:11::/64', ?, 19)
+                """, Timestamp.from(Instant.ofEpochSecond(nextWindow)));
+        mvc.perform(post("/api/v1/auth/guest/code").with(request -> { request.setRemoteAddr("2001:db8:11::1"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/auth/staff/code").with(request -> { request.setRemoteAddr("2001:db8:11::2"); return request; })
+                        .header("X-Forwarded-For", "198.51.100.23").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"));
+        mvc.perform(post("/api/v1/auth/guest/code").with(request -> { request.setRemoteAddr("2001:db8:12::1"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    private long addUser(String phone, String name, String role) {
+        return jdbc.queryForObject("insert into users (phone, name, role) values (?, ?, ?) returning id",
+                Long.class, phone, name, role);
+    }
+
+    private String bearer(long id) {
+        return "Bearer " + auth.issueSession(users.findById(id).orElseThrow()).token();
     }
 
     private long addHotel(String name) {

@@ -71,25 +71,25 @@ public class AdminController {
     @PostMapping("/hotels/{hotelId}/approve")
     public HotelRow approve(@CallerId Long userId, @PathVariable Long hotelId) {
         access.requireAdmin(userId);
-        return service.approve(hotelId);
+        return service.approve(userId, hotelId);
     }
 
     @PostMapping("/hotels/{hotelId}/reject")
     public HotelRow reject(@CallerId Long userId, @PathVariable Long hotelId, @Valid @RequestBody Reject body) {
         access.requireAdmin(userId);
-        return service.reject(hotelId, body.reason());
+        return service.reject(userId, hotelId, body.reason());
     }
 
     @PostMapping("/hotels/{hotelId}/suspend")
     public HotelRow suspend(@CallerId Long userId, @PathVariable Long hotelId) {
         access.requireAdmin(userId);
-        return service.setSuspended(hotelId, true);
+        return service.setSuspended(userId, hotelId, true);
     }
 
     @PostMapping("/hotels/{hotelId}/reinstate")
     public HotelRow reinstate(@CallerId Long userId, @PathVariable Long hotelId) {
         access.requireAdmin(userId);
-        return service.setSuspended(hotelId, false);
+        return service.setSuspended(userId, hotelId, false);
     }
 
     @GetMapping("/bookings")

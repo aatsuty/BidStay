@@ -1,5 +1,7 @@
 package com.bidstay.admin;
 
+import com.bidstay.audit.AuditTrail;
+import com.bidstay.audit.AuditTrail.Action;
 import com.bidstay.admin.AdminDtos.*;
 import com.bidstay.common.ApiException;
 import com.bidstay.hotel.*;
@@ -31,6 +33,7 @@ public class AdminService {
     private final PartnerChatService chat;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final AuditTrail audit;
 
     // ------------------------------------------------------------------ overview
 
@@ -83,11 +86,6 @@ public class AdminService {
     public record HotelPage(List<HotelRow> hotels, Long nextCursor) {}
 
     @Transactional
-    public HotelRow verifyDocument(Long hotelId, DocType type, boolean verified) {
-        return verifyDocument(hotelId, type, verified, null, null);
-    }
-
-    @Transactional
     public HotelRow verifyDocument(Long hotelId, DocType type, boolean verified, Long versionId, Long reviewerId) {
         Hotel hotel = lockedHotel(hotelId);
         HotelDocument d = docs.findByHotelIdAndDocType(hotelId, type)
@@ -102,37 +100,41 @@ public class AdminService {
         if (!verified && hotel.getStatus() == HotelStatus.ACTIVE) hotel.setStatus(HotelStatus.PENDING_VERIFICATION);
         d.setVerified(verified);
         d.setVerifiedAt(verified ? clock.instant() : null);
+        audit.record(reviewerId, verified ? Action.DOCUMENT_VERIFIED : Action.DOCUMENT_UNVERIFIED, d.getId(), hotelId);
         return row(hotel);
     }
 
     @Transactional
-    public HotelRow approve(Long hotelId) {
+    public HotelRow approve(Long actorId, Long hotelId) {
         Hotel h = lockedHotel(hotelId);
         long verified = docs.findByHotelId(hotelId).stream().filter(HotelDocument::isVerified).count();
         if (verified < DocType.values().length) throw ApiException.invalid("Verify all four documents before approving");
         h.setStatus(HotelStatus.ACTIVE);
         h.setRejectionReason(null);
+        audit.record(actorId, Action.HOTEL_APPROVED, hotelId, hotelId);
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
                 "*Congratulations.* " + h.getName() + " is verified and now live on BidStay. You will receive bid requests here.", null);
         return row(h);
     }
 
     @Transactional
-    public HotelRow reject(Long hotelId, String reason) {
+    public HotelRow reject(Long actorId, Long hotelId, String reason) {
         Hotel h = lockedHotel(hotelId);
         h.setStatus(HotelStatus.REJECTED);
         h.setRejectionReason(reason.trim());
+        audit.record(actorId, Action.HOTEL_REJECTED, hotelId, hotelId);
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
                 "Your registration for " + h.getName() + " was not approved: " + reason.trim() + ". Please fix it and resubmit the document.", null);
         return row(h);
     }
 
     @Transactional
-    public HotelRow setSuspended(Long hotelId, boolean suspended) {
+    public HotelRow setSuspended(Long actorId, Long hotelId, boolean suspended) {
         Hotel h = lockedHotel(hotelId);
         if (suspended && h.getStatus() != HotelStatus.ACTIVE) throw ApiException.invalid("Only live hotels can be suspended");
         if (!suspended && h.getStatus() != HotelStatus.SUSPENDED) throw ApiException.invalid("This hotel is not suspended");
         h.setStatus(suspended ? HotelStatus.SUSPENDED : HotelStatus.ACTIVE);
+        audit.record(actorId, suspended ? Action.HOTEL_SUSPENDED : Action.HOTEL_REINSTATED, hotelId, hotelId);
         return row(h);
     }
 

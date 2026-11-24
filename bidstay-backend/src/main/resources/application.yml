@@ -25,6 +25,10 @@ spring:
     default-property-inclusion: non_null
 
 bidstay:
+  rate-limit:
+    otp-send: ${BIDSTAY_OTP_SEND_LIMIT:20}
+    otp-verify: ${BIDSTAY_OTP_VERIFY_LIMIT:60}
+    admin-sign-in: ${BIDSTAY_ADMIN_SIGN_IN_LIMIT:20}
   documents:
     bucket: ${BIDSTAY_DOCUMENT_BUCKET:}
     region: ${AWS_REGION:ap-south-1}
@@ -65,4 +69,5 @@ bidstay:
   commission-pct: 10.0            # PDF: 8-12%
 
 server:
+  forward-headers-strategy: ${BIDSTAY_FORWARD_HEADERS_STRATEGY:none}
   port: 8080

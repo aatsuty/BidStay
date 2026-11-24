@@ -120,13 +120,13 @@ class PartnerAdminIT {
     @Test
     void approvalNeedsAllFourVerifiedDocuments() {
         Long grand = hotels.findByName("Delhi Grand Stay").orElseThrow().getId();
-        assertThrows(ApiException.class, () -> admin.approve(grand));                       // nothing verified
-        for (DocType t : List.of(DocType.GST, DocType.LICENCE, DocType.OWNER_ID)) admin.verifyDocument(grand, t, true);
-        assertThrows(ApiException.class, () -> admin.verifyDocument(grand, DocType.PHOTOS, true));   // never submitted
+        assertThrows(ApiException.class, () -> admin.approve(4L, grand));                       // nothing verified
+        for (DocType t : List.of(DocType.GST, DocType.LICENCE, DocType.OWNER_ID)) admin.verifyDocument(grand, t, true, null, 4L);
+        assertThrows(ApiException.class, () -> admin.verifyDocument(grand, DocType.PHOTOS, true, null, 4L));   // never submitted
         partner.submitDocument(grand, DocType.PHOTOS, "https://example.com/photos");
-        admin.verifyDocument(grand, DocType.PHOTOS, true);
+        admin.verifyDocument(grand, DocType.PHOTOS, true, null, 4L);
 
-        HotelRow live = admin.approve(grand);
+        HotelRow live = admin.approve(4L, grand);
         assertEquals(HotelStatus.ACTIVE, live.status());
         assertTrue(live.allDocsVerified());
     }
@@ -134,7 +134,7 @@ class PartnerAdminIT {
     @Test
     void rejectedHotelReturnsToReviewWhenOwnerResubmits() {
         Long pahar = hotels.findByName("Pahar Palace").orElseThrow().getId();
-        assertEquals(HotelStatus.REJECTED, admin.reject(pahar, "GST number does not match").status());
+        assertEquals(HotelStatus.REJECTED, admin.reject(4L, pahar, "GST number does not match").status());
         partner.submitDocument(pahar, DocType.GST, "07AAAAA0000F1Z5 (corrected)");
         assertEquals(HotelStatus.PENDING_VERIFICATION, hotels.findById(pahar).orElseThrow().getStatus());
     }

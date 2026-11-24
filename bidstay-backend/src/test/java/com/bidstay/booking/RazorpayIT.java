@@ -68,6 +68,17 @@ class RazorpayIT {
         mvc.perform(post("/api/v1/bookings/{id}/cancel", id).header("X-User-Id", 1))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"))
                 .andExpect(jsonPath("$.refundStatus").value("REFUND_PENDING"));
+        String refund = """
+                {"event":"refund.processed","payload":{"refund":{"entity":{
+                    "id":"rfnd_pilot","payment_id":"pay_pilot","amount":300000
+                }}}}
+                """;
+        submit(refund);
+        submit(refund);
+        assertEquals("REFUND_PROCESSED", bookings.get(1L, id).refundStatus());
+        assertEquals(1, jdbc.queryForObject("""
+                select count(*) from audit_events where action = 'REFUND_PROCESSED' and subject_id = ?
+                """, Integer.class, id));
     }
 
     @Test

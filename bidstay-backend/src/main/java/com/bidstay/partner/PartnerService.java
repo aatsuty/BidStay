@@ -74,7 +74,7 @@ public class PartnerService {
             roomTypes.save(rt);
             inventory.ensureRange(rt.getId(), today, today.plusDays(InventoryJobs.HORIZON_DAYS), r.totalRooms());
         }
-        jdbc.update("insert into hotel_staff (user_id, hotel_id) values (?, ?)", userId, h.getId());
+        jdbc.update("insert into hotel_staff (user_id, hotel_id, can_manage_staff) values (?, ?, true)", userId, h.getId());
         chat.bot(h.getId(), PartnerMessage.Kind.SYSTEM,
                 "*Welcome to BidStay.* Add your four documents (GST, licence, owner ID, photos) so our team can verify "
                         + h.getName() + ". Bid requests will appear in this chat once you are live.", null);

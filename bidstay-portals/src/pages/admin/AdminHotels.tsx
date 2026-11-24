@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-q
 import { useApi } from '../../lib/api';
 import { fmtDateTime } from '../../lib/format';
 import type { AdminHotel, DocumentView, HotelStatus } from '../../lib/types';
+import StaffAccess from '../hotel/StaffAccess';
 import { DOC_LABEL, ErrorBox, HotelStatusBadge, Loading, PageHead } from '../../components/ui';
 
 const FILTERS: [HotelStatus | 'ALL', string][] = [['PENDING_VERIFICATION', 'Awaiting approval'], ['ACTIVE', 'Live'], ['REJECTED', 'Not approved'], ['SUSPENDED', 'Suspended'], ['ALL', 'All']];
@@ -41,6 +42,7 @@ function HotelCard({ h }: { h: AdminHotel }) {
   const api = useApi();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
+  const [manageAccess, setManageAccess] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const done = () => { qc.invalidateQueries({ queryKey: ['adminHotels'] }); qc.invalidateQueries({ queryKey: ['adminStats'] }); };
   const act = useMutation({ mutationFn: (path: string) => api.post<AdminHotel>(`/api/v1/admin/hotels/${h.id}/${path}`, path === 'reject' ? { reason } : {}), onSuccess: () => { setRejecting(false); setReason(''); done(); } });
@@ -95,6 +97,9 @@ function HotelCard({ h }: { h: AdminHotel }) {
         {h.status === 'SUSPENDED' && <button className="btn" disabled={act.isPending} onClick={() => act.mutate('reinstate')}>Reinstate</button>}
         {!h.allDocsVerified && (h.status === 'PENDING_VERIFICATION' || h.status === 'REJECTED') && <span className="muted small">Verify all four documents to enable approval.</span>}
       </div>
+      <button className="btn ghost sm" style={{ marginTop: 10 }} aria-expanded={manageAccess}
+        onClick={() => setManageAccess((open) => !open)}>{manageAccess ? 'Hide staff access' : 'Manage staff access'}</button>
+      {manageAccess && <div style={{ marginTop: 10 }}><StaffAccess hotelId={h.id} /></div>}
       {rejecting && (
         <div className="row wrap" style={{ marginTop: 10 }}>
           <input className="input grow" placeholder="Reason shown to the owner, e.g. GST number does not match" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />

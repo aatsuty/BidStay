@@ -107,6 +107,7 @@ class AuthService {
         return jdbc.query("""
                 select s.user_id from auth_sessions s join users u on u.id = s.user_id
                 where s.token_hash = ? and s.expires_at > ? and u.role = s.scope_role
+                  and (u.role <> 'HOTEL_STAFF' or exists (select 1 from hotel_staff h where h.user_id = u.id))
                 """, (rs, i) -> rs.getLong(1), hash, Timestamp.from(clock.instant()))
                 .stream().findFirst().orElseThrow(AuthService::signInRequired);
     }

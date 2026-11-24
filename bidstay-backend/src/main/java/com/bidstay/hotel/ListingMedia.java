@@ -1,11 +1,14 @@
 package com.bidstay.hotel;
 
+import com.bidstay.audit.AuditTrail;
+import com.bidstay.audit.AuditTrail.Action;
 import com.bidstay.common.ApiException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -22,6 +25,7 @@ public class ListingMedia {
     private final RoomTypeRepository rooms;
     private final HotelDocumentFiles documents;
     private final TransactionTemplate transactions;
+    private final AuditTrail audit;
 
     private static final String PHOTO_SELECT = """
             select m.id, m.hotel_id, h.name, m.room_type_id, r.name, m.caption, m.status, m.review_reason, m.created_at
@@ -60,16 +64,18 @@ public class ListingMedia {
         persist(caller, hotelId, null, "Property photo", document.bytes(), version);
     }
 
+    @Transactional
     public void review(long caller, long id, boolean approved, String reason) {
         String detail = reason == null ? null : reason.strip();
         if (!approved && (detail == null || detail.isBlank() || detail.length() > 180)) {
             throw ApiException.invalid("Enter a reason of up to 180 characters");
         }
-        int updated = jdbc.update("""
+        long hotelId = jdbc.query("""
                 update hotel_media set status = ?, reviewed_by = ?, reviewed_at = now(), review_reason = ?
-                where id = ? and status = 'PENDING'
-                """, approved ? "APPROVED" : "REJECTED", caller, approved ? null : detail, id);
-        if (updated != 1) throw ApiException.conflict("This photo has already been reviewed or removed");
+                where id = ? and status = 'PENDING' returning hotel_id
+                """, (rs, row) -> rs.getLong(1), approved ? "APPROVED" : "REJECTED", caller, approved ? null : detail, id)
+                .stream().findFirst().orElseThrow(() -> ApiException.conflict("This photo has already been reviewed or removed"));
+        audit.record(caller, approved ? Action.LISTING_PHOTO_APPROVED : Action.LISTING_PHOTO_REJECTED, id, hotelId);
     }
 
     public void withdraw(long hotelId, long id) {
@@ -114,15 +120,16 @@ public class ListingMedia {
                 Integer count = jdbc.queryForObject(
                         "select count(*) from hotel_media where hotel_id = ? and status in ('PENDING','APPROVED')", Integer.class, hotelId);
                 if (count != null && count >= 40) throw ApiException.conflict("Remove a photo before adding more");
-                int created = jdbc.update("""
+                var created = jdbc.query("""
                         insert into hotel_media
                           (hotel_id,room_type_id,uploaded_by,caption,object_key,storage,status,reviewed_by,reviewed_at,source_document_id)
                         values (?,?,?,?,?,?,?,?,case when cast(? as bigint) is null then null else now() end,?)
-                        on conflict (source_document_id) do nothing
-                        """,
+                        on conflict (source_document_id) do nothing returning id
+                        """, (rs, row) -> rs.getLong(1),
                         hotelId, roomTypeId, caller, label, key, provider, document == null ? "PENDING" : "APPROVED",
                         document == null ? null : caller, document, document);
-                if (created == 0) throw ApiException.conflict("This verification photo is already in the gallery");
+                if (created.isEmpty()) throw ApiException.conflict("This verification photo is already in the gallery");
+                if (document != null) audit.record(caller, Action.LISTING_PHOTO_PUBLISHED, created.getFirst(), hotelId);
             });
         } catch (RuntimeException failure) {
             files.remove(provider, key + "/full.jpg");

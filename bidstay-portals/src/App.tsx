@@ -14,6 +14,7 @@ import Profile from './pages/hotel/Profile';
 import Register from './pages/hotel/Register';
 import AdminShell from './pages/admin/AdminShell';
 import Overview from './pages/admin/Overview';
+import AuditLog from './pages/admin/AuditLog';
 import AdminHotels from './pages/admin/AdminHotels';
 import AdminBookings from './pages/admin/AdminBookings';
 import AdminBids from './pages/admin/AdminBids';
@@ -68,6 +69,7 @@ export default function App() {
       <Route path="/admin" element={<Guard role="ADMIN"><AdminShell /></Guard>}>
         <Route index element={<Overview />} />
         <Route path="hotels" element={<AdminHotels />} />
+        <Route path="audit" element={<AuditLog />} />
         <Route path="photos" element={<ListingMediaReview />} />
         <Route path="bookings" element={<AdminBookings />} />
         <Route path="bids" element={<AdminBids />} />

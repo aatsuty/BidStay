@@ -1,5 +1,7 @@
 package com.bidstay.auth;
 
+import com.bidstay.audit.AuditTrail;
+import com.bidstay.audit.AuditTrail.Action;
 import com.bidstay.common.ApiException;
 import com.bidstay.user.Role;
 import com.bidstay.user.UserRepository;
@@ -29,6 +31,7 @@ class AdminSignIn {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final AuthService auth;
+    private final AuditTrail audit;
     private final Clock clock;
     private final String phone;
     private final String passwordHash;
@@ -36,7 +39,7 @@ class AdminSignIn {
     private final BCryptPasswordEncoder passwords = new BCryptPasswordEncoder();
 
     AdminSignIn(UserRepository users, JdbcTemplate jdbc, TransactionTemplate transactions,
-                AuthService auth, Clock clock,
+                AuthService auth, AuditTrail audit, Clock clock,
                 @Value("${bidstay.admin.phone:}") String phone,
                 @Value("${bidstay.admin.password-hash:}") String passwordHash,
                 @Value("${bidstay.admin.totp-secret:}") String totpSecret) {
@@ -44,6 +47,7 @@ class AdminSignIn {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.auth = auth;
+        this.audit = audit;
         this.clock = clock;
         this.phone = phone;
         this.passwordHash = passwordHash;
@@ -80,6 +84,7 @@ class AdminSignIn {
                         where user_id = ? and last_totp < ?
                         """, matched, user.getId(), matched);
                 if (consumed == 0) throw invalid();
+                audit.record(user.getId(), Action.ADMIN_SIGNED_IN, user.getId(), null);
                 return auth.issueSession(user);
             });
         }

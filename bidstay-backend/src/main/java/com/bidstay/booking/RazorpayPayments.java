@@ -1,5 +1,7 @@
 package com.bidstay.booking;
 
+import com.bidstay.audit.AuditTrail;
+import com.bidstay.audit.AuditTrail.Action;
 import com.bidstay.common.ApiException;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ class RazorpayPayments {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final AuditTrail audit;
 
     @Value("${bidstay.razorpay.webhook-secret:}")
     private String webhookSecret;
@@ -75,18 +78,25 @@ class RazorpayPayments {
                 insert into payment_captures (provider_payment_id, booking_id, amount_paise, status)
                 values (?, ?, ?, ?) on conflict (provider_payment_id) do nothing
                 """, paymentId, bookingId, paid, apply ? "APPLIED" : "REFUND_PENDING");
-        if (recorded != 0 && apply) bookingService.confirmPayment(bookingId, paymentId);
+        if (recorded != 0) {
+            if (apply) bookingService.confirmPayment(bookingId, paymentId);
+            else audit.record(null, Action.REFUND_QUEUED, bookingId, booking.getHotelId());
+        }
     }
 
     @Transactional
     void refundEvent(JsonNode refund, String event) {
         String status = "refund.processed".equals(event) ? "REFUND_PROCESSED" : "REFUND_REVIEW";
-        jdbc.update("""
-                update payment_captures set status = ?, refund_id = ?
-                where provider_payment_id = ? and status in ('REFUND_PENDING','REFUND_SUBMITTED','REFUND_REVIEW')
-                  and (refund_id is null or refund_id = ?) and amount_paise = ?
-                """, status, refund.path("id").asText(), refund.path("payment_id").asText(),
+        var changed = jdbc.query("""
+                update payment_captures p set status = ?, refund_id = ? from bookings b
+                where p.booking_id = b.id and p.provider_payment_id = ?
+                  and p.status in ('REFUND_PENDING','REFUND_SUBMITTED','REFUND_REVIEW') and p.status <> ?
+                  and (p.refund_id is null or p.refund_id = ?) and p.amount_paise = ?
+                returning p.booking_id, b.hotel_id
+                """, (rs, row) -> new RefundBooking(rs.getLong(1), rs.getLong(2)), status,
+                refund.path("id").asText(), refund.path("payment_id").asText(), status,
                 refund.path("id").asText(), refund.path("amount").asLong());
+        changed.forEach(booking -> recordRefund(status, booking));
     }
 
     @Scheduled(fixedDelayString = "PT15S")
@@ -94,10 +104,12 @@ class RazorpayPayments {
         if (!enabled()) return;
         transactions.executeWithoutResult(transaction -> {
             var pending = jdbc.query("""
-                    select provider_payment_id, amount_paise, attempts from payment_captures
-                    where status = 'REFUND_PENDING' and retry_at <= now()
-                    order by retry_at limit 1 for update skip locked
-                    """, (rs, row) -> new PendingRefund(rs.getString(1), rs.getLong(2), rs.getInt(3)));
+                    select p.provider_payment_id, p.amount_paise, p.attempts, p.booking_id, b.hotel_id
+                    from payment_captures p join bookings b on b.id = p.booking_id
+                    where p.status = 'REFUND_PENDING' and p.retry_at <= now()
+                    order by p.retry_at limit 1 for update of p skip locked
+                    """, (rs, row) -> new PendingRefund(rs.getString(1), rs.getLong(2), rs.getInt(3),
+                    new RefundBooking(rs.getLong(4), rs.getLong(5))));
             if (pending.isEmpty()) return;
             PendingRefund capture = pending.getFirst();
             try {
@@ -109,6 +121,7 @@ class RazorpayPayments {
                 };
                 jdbc.update("update payment_captures set status = ?, refund_id = ? where provider_payment_id = ?",
                         status, refund.id(), capture.paymentId());
+                recordRefund(status, capture.booking());
             } catch (ApiException failure) {
                 int attempts = capture.attempts() + 1;
                 jdbc.update("""
@@ -116,10 +129,21 @@ class RazorpayPayments {
                           retry_at = now() + make_interval(secs => ?) where provider_payment_id = ?
                         """, attempts, attempts >= 8 ? "REFUND_REVIEW" : "REFUND_PENDING",
                         Math.min(3600, 15 * (1 << attempts)), capture.paymentId());
+                if (attempts >= 8) recordRefund("REFUND_REVIEW", capture.booking());
             }
         });
     }
 
+    private void recordRefund(String status, RefundBooking booking) {
+        Action action = switch (status) {
+            case "REFUND_PROCESSED" -> Action.REFUND_PROCESSED;
+            case "REFUND_REVIEW" -> Action.REFUND_NEEDS_REVIEW;
+            default -> Action.REFUND_SUBMITTED;
+        };
+        audit.record(null, action, booking.id(), booking.hotelId());
+    }
+
     record CheckoutLink(String url) {}
-    private record PendingRefund(String paymentId, long amount, int attempts) {}
+    private record RefundBooking(long id, long hotelId) {}
+    private record PendingRefund(String paymentId, long amount, int attempts, RefundBooking booking) {}
 }

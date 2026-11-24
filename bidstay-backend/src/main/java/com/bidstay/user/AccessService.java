@@ -34,6 +34,24 @@ public class AccessService {
         throw new ApiException(HttpStatus.FORBIDDEN, "You do not have access to this hotel");
     }
 
+    public User requireStaffManager(Long userId, Long hotelId) {
+        User actor = user(userId);
+        if (actor.getRole() == Role.ADMIN) return actor;
+        if (actor.getRole() == Role.HOTEL_STAFF && canManageMembership(userId, hotelId)) return actor;
+        throw new ApiException(HttpStatus.FORBIDDEN, "Only the hotel manager can change staff access");
+    }
+
+    private boolean canManageMembership(Long userId, Long hotelId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists (select 1 from hotel_staff where user_id = ? and hotel_id = ? and can_manage_staff)
+                """, Boolean.class, userId, hotelId));
+    }
+
+    public boolean hasHotelMembership(Long userId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select exists (select 1 from hotel_staff where user_id = ?)",
+                Boolean.class, userId));
+    }
+
     public User requireHotelStaff(Long userId) {
         User u = user(userId);
         if (u.getRole() != Role.HOTEL_STAFF) throw new ApiException(HttpStatus.FORBIDDEN, "Hotel partners only");

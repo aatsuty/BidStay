@@ -247,9 +247,9 @@ class BidFlowIT {
 
     @Test
     void upgradesPreviouslySeededDevDatabase(@TempDir Path originalMigrations) throws IOException {
-        for (String script : List.of("V1__core_schema.sql", "V2__partner_admin.sql")) {
-            try (var stream = new ClassPathResource("db/migration/" + script).getInputStream()) {
-                Files.copy(stream, originalMigrations.resolve(script));
+        for (String script : List.of("migration/V1__core_schema.sql", "migration/V2__partner_admin.sql", "seed/V1000__dev_seed.sql")) {
+            try (var stream = new ClassPathResource("db/" + script).getInputStream()) {
+                Files.copy(stream, originalMigrations.resolve(Path.of(script).getFileName()));
             }
         }
         String schema = "existing_dev";
@@ -257,7 +257,7 @@ class BidFlowIT {
                 .configuration(flyway.getConfiguration())
                 .defaultSchema(schema)
                 .schemas(schema)
-                .locations("filesystem:" + originalMigrations, "classpath:db/seed")
+                .locations("filesystem:" + originalMigrations)
                 .load();
         assertEquals(3, original.migrate().migrationsExecuted);
         assertEquals(MigrationVersion.fromVersion("1000"), original.info().current().getVersion());
