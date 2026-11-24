@@ -9,10 +9,11 @@ export class ApiError extends Error {
 
 interface Options {
   baseUrl: string;
-  userId: number;
+  userId?: number;
+  token?: string;
 }
 
-function createApi({ baseUrl, userId }: Options) {
+function createApi({ baseUrl, userId, token }: Options) {
   async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
@@ -23,8 +24,8 @@ function createApi({ baseUrl, userId }: Options) {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          // dev auth placeholder (see session.tsx)
-          'X-User-Id': String(userId),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(!token && userId ? { 'X-User-Id': String(userId) } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -62,8 +63,9 @@ function safeJson(text: string): unknown {
 export type Api = ReturnType<typeof createApi>;
 
 export function useApi(): Api {
-  const { baseUrl, userId } = useSession();
-  return useMemo(() => createApi({ baseUrl, userId }), [baseUrl, userId]);
+  const { baseUrl, userId, auth } = useSession();
+  const token = auth?.token;
+  return useMemo(() => createApi({ baseUrl, userId: __DEV__ ? userId : undefined, token }), [baseUrl, userId, token]);
 }
 
 export function errorMessage(e: unknown): string {

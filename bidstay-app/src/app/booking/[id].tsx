@@ -6,6 +6,7 @@ import { BookingBadge, Button, Card, ErrorText, Loading } from '@/components/ui'
 import { errorMessage, useApi } from '@/lib/api';
 import { countdown, formatDate, inr, nightsBetween, useNow } from '@/lib/format';
 import { colors } from '@/lib/theme';
+import { useSession } from '@/lib/session';
 import type { BookingView } from '@/lib/types';
 
 // Fake payment button: on in dev, and in internal test builds with EXPO_PUBLIC_DEV_PAYMENTS=1. Never in production.
@@ -14,11 +15,12 @@ const DEV_PAYMENTS = __DEV__ || process.env.EXPO_PUBLIC_DEV_PAYMENTS === '1';
 export default function BookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const api = useApi();
+  const { cacheKey } = useSession();
   const qc = useQueryClient();
   const now = useNow();
 
   const q = useQuery({
-    queryKey: ['booking', id],
+    queryKey: ['booking', id, cacheKey],
     queryFn: () => api.get<BookingView>(`/api/v1/bookings/${id}`),
     refetchInterval: (query) => (query.state.data?.status === 'PENDING_PAYMENT' ? 5000 : false),
   });
@@ -28,7 +30,7 @@ export default function BookingScreen() {
   const pay = useMutation({
     mutationFn: () => api.post<BookingView>(`/api/v1/dev/bookings/${id}/confirm-payment`, { paymentRef: `dev_${Date.now()}` }),
     onSuccess: (data) => {
-      qc.setQueryData(['booking', id], data);
+      qc.setQueryData(['booking', id, cacheKey], data);
       qc.invalidateQueries({ queryKey: ['bids'] });
     },
   });

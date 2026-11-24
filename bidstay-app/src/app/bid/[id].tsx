@@ -6,18 +6,20 @@ import { BidBadge, Button, Card, ErrorText, Field, Loading, OfferBadge } from '@
 import { errorMessage, useApi } from '@/lib/api';
 import { countdown, formatDate, inr, nightsBetween, useNow } from '@/lib/format';
 import { colors } from '@/lib/theme';
+import { useSession } from '@/lib/session';
 import type { BidView, BookingView, OfferView } from '@/lib/types';
 
 export default function BidScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const api = useApi();
+  const { cacheKey } = useSession();
   const qc = useQueryClient();
   const now = useNow();
   const [raiseTo, setRaiseTo] = useState('');
 
   // Poll while hotels may still be replying. (Later: WebSocket/push instead of polling.)
   const bidQuery = useQuery({
-    queryKey: ['bid', id],
+    queryKey: ['bid', id, cacheKey],
     queryFn: () => api.get<BidView>(`/api/v1/bids/${id}`),
     refetchInterval: (q) => (q.state.data?.status === 'OPEN' ? 4000 : false),
   });
@@ -26,7 +28,7 @@ export default function BidScreen() {
   const raise = useMutation({
     mutationFn: (price: number) => api.post<BidView>(`/api/v1/bids/${id}/raise`, { pricePerNight: price }),
     onSuccess: (data) => {
-      qc.setQueryData(['bid', id], data);
+      qc.setQueryData(['bid', id, cacheKey], data);
       qc.invalidateQueries({ queryKey: ['bids'] });
       setRaiseTo('');
     },
@@ -35,7 +37,7 @@ export default function BidScreen() {
   const accept = useMutation({
     mutationFn: (offerId: number) => api.post<BookingView>(`/api/v1/bids/${id}/offers/${offerId}/accept`),
     onSuccess: (booking) => {
-      qc.invalidateQueries({ queryKey: ['bid', id] });
+      qc.invalidateQueries({ queryKey: ['bid', id, cacheKey] });
       qc.invalidateQueries({ queryKey: ['bids'] });
       router.replace(`/booking/${booking.bookingId}`);
     },

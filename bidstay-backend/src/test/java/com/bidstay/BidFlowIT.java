@@ -17,11 +17,13 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -35,6 +37,9 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Runs against a real PostgreSQL (needs Docker). The "dev" profile loads the seed data:
@@ -42,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Guests are user ids 1 and 2. Each test uses its own dates so tests do not share inventory.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("dev")
 class BidFlowIT {
@@ -54,6 +60,19 @@ class BidFlowIT {
     @Autowired BookingService bookingService;
     @Autowired HotelRepository hotels;
     @Autowired Flyway flyway;
+    @Autowired MockMvc mvc;
+
+    @Test
+    void devDemoAccountsStillReachTheirRoutes() throws Exception {
+        mvc.perform(get("/api/v1/bids").header("X-User-Id", 1))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/admin/stats").header("X-User-Id", 4))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/me").header("X-User-Id", 3))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("HOTEL_STAFF"));
+        mvc.perform(get("/api/v1/admin/stats").header("X-User-Id", 4).header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     void upgradesPreviouslySeededDevDatabase(@TempDir Path originalMigrations) throws IOException {
@@ -77,7 +96,7 @@ class BidFlowIT {
                 .defaultSchema(schema)
                 .schemas(schema)
                 .load();
-        assertEquals(1, upgraded.migrate().migrationsExecuted);
+        assertEquals(2, upgraded.migrate().migrationsExecuted);
         assertTrue(Arrays.stream(upgraded.info().applied())
                 .anyMatch(migration -> MigrationVersion.fromVersion("3").equals(migration.getVersion())
                         && migration.getState() == MigrationState.OUT_OF_ORDER));

@@ -10,7 +10,22 @@ mvn spring-boot:run -Dspring-boot.run.profiles=dev
 mvn verify                                 # integration tests (needs Docker, uses Testcontainers)
 ```
 The `dev` profile also loads demo data: 4 Delhi hotels, 6 room types, 60 days of inventory,
-guests `X-User-Id: 1` and `2`, and a hotel owner for hotels 1 and 2 (`X-Hotel-Id: 1`).
+guests `X-User-Id: 1` and `2`, and a hotel owner for hotels 1 and 2 (`X-User-Id: 3`).
+
+## Guest phone sign-in
+
+Configure a Twilio Verify service for six-digit SMS codes and enable the India destination.
+Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`
+in the **backend** environment, restart it, and use **Profile** in the guest app.
+Guest signup takes place after the phone is verified. Sessions expire after seven days
+and are revoked on sign-out. The guest app keeps the token in memory on web and uses
+SecureStore on native. For web deployment, serve the frontend and API under the same
+HTTPS origin or configure an explicit allowed frontend origin.
+
+Local demo accounts work with the `dev` profile without Twilio. Outside `dev`, the
+API rejects demo identity headers. Hotel and admin production sign-in is pending.
+Before enabling SMS for a public pilot, configure Twilio Fraud Guard, SMS geography
+permissions, and rate limits at the public API gateway.
 
 ## Try the full flow (curl)
 
@@ -25,16 +40,16 @@ curl -X POST localhost:8080/api/v1/bids -H 'X-User-Id: 1' -H 'Content-Type: appl
   -d "{\"city\":\"Delhi\",\"checkIn\":\"$D1\",\"checkOut\":\"$D2\",\"rooms\":1,\"guests\":2,\"category\":\"STANDARD\",\"pricePerNight\":1100,\"hotelIds\":[1,2]}"
 
 # 2. Hotel 1 sees the pending bid and counters 1500
-curl localhost:8080/api/v1/hotel/offers -H 'X-Hotel-Id: 1'
-curl -X POST localhost:8080/api/v1/hotel/offers/1/respond -H 'X-Hotel-Id: 1' -H 'Content-Type: application/json' \
-  -d '{"action":"COUNTER","counterPrice":1500}'
+curl localhost:8080/api/v1/partner/hotels/1/offers -H 'X-User-Id: 3'
+curl -X POST localhost:8080/api/v1/partner/hotels/1/offers/1/respond -H 'X-User-Id: 3' -H 'Content-Type: application/json' \
+  -d '{"action":"COUNTER","counterPrice":1500,"round":1}'
 
 # 3. Guest checks offers, then accepts one (rooms are held for 10 minutes)
 curl localhost:8080/api/v1/bids/1 -H 'X-User-Id: 1'
 curl -X POST localhost:8080/api/v1/bids/1/offers/2/accept -H 'X-User-Id: 1'
 
 # 4. Dev-only fake payment, then the hotel name and address are revealed
-curl -X POST localhost:8080/api/v1/dev/bookings/1/confirm-payment -H 'Content-Type: application/json' -d '{"paymentRef":"pay_123"}'
+curl -X POST localhost:8080/api/v1/dev/bookings/1/confirm-payment -H 'X-User-Id: 1' -H 'Content-Type: application/json' -d '{"paymentRef":"pay_123"}'
 curl localhost:8080/api/v1/bookings/1 -H 'X-User-Id: 1'
 ```
 (Raise a bid: `POST /api/v1/bids/{id}/raise` with `{"pricePerNight":1250}`. Max 3 rounds.)
@@ -50,7 +65,7 @@ curl localhost:8080/api/v1/bookings/1 -H 'X-User-Id: 1'
 `GET /api/v1/me` returns the caller's role. Seed users (dev profile): 1,2 guests; 3 owner of hotels 1-2; 4 admin; 5 owner of the two pending hotels.
 
 New behaviour: hotels choose how bids are answered (`auto_mode`, `auto_counter` + %, `auto_decline`; manual mode always waits for the owner).
-Everything the platform tells a hotel, and every reply, is stored in `partner_messages` (the WhatsApp-style chat). `PartnerService.handleChatText` understands `YES`, `NO`, `COUNTER 1500`.
+Everything the platform tells a hotel, and every reply, is stored in `partner_messages` (the WhatsApp-style chat). `PartnerService.handleChatText` accepts commands with an offer and round, such as `YES 42/1` and `COUNTER 1500 42/1`.
 Hotels need four verified documents before an admin can approve them. `InventoryJobs` keeps 90 days of nights published for live hotels.
 
 ## Design decisions worth knowing
@@ -69,7 +84,7 @@ Hotels need four verified documents before an admin can approve them. `Inventory
 
 ## NOT done yet (next steps, in order)
 
-1. **Auth**: phone OTP + JWT; replace the `X-User-Id` header (read in the controllers; role and hotel-ownership checks already exist in `AccessService`).
+1. **Staff auth**: add property-scoped invitations for hotel staff and MFA for admins.
 2. **Razorpay**: create order on accept, verify webhook signature, call `confirmPayment`; refund if payment arrives after hold expiry.
 3. **Notifications**: FCM push to guests; WhatsApp Business API gateway for `PartnerChatService.bot` and an inbound webhook calling `PartnerService.handleChatText` (the chat and command parsing already exist).
 4. **Realtime**: WebSocket/SSE so the guest app sees offers arrive; polling `GET /bids/{id}` works meanwhile.

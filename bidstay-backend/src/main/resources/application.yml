@@ -17,6 +17,10 @@ spring:
     default-property-inclusion: non_null
 
 bidstay:
+  auth:
+    twilio-account-sid: ${TWILIO_ACCOUNT_SID:}
+    twilio-auth-token: ${TWILIO_AUTH_TOKEN:}
+    twilio-verify-service-sid: ${TWILIO_VERIFY_SERVICE_SID:}
   offer-response-window: 15m      # hotel must reply within this time
   bid-lifetime: 60m               # whole bid request expires after this
   payment-hold: 10m               # inventory is held this long while guest pays

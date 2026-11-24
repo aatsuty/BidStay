@@ -6,18 +6,20 @@ import { BidBadge, Card, Empty, ErrorText, Loading } from '@/components/ui';
 import { errorMessage, useApi } from '@/lib/api';
 import { formatDate, inr } from '@/lib/format';
 import { colors } from '@/lib/theme';
+import { useSession } from '@/lib/session';
 import type { BidView } from '@/lib/types';
 
 export default function TripsScreen() {
   const api = useApi();
-  const q = useQuery({ queryKey: ['bids'], queryFn: () => api.get<BidView[]>('/api/v1/bids') });
+  const { cacheKey } = useSession();
+  const q = useQuery({ queryKey: ['bids', cacheKey], queryFn: () => api.get<BidView[]>('/api/v1/bids') });
 
   // Refresh whenever this tab comes into view.
   useFocusEffect(
     useCallback(() => {
       q.refetch();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []),
+    }, [cacheKey]),
   );
 
   if (q.isLoading) return <Loading />;

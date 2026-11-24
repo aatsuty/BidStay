@@ -2,13 +2,16 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { Platform } from 'react-native';
 import { loadItem, saveItem } from './storage';
 
-/**
- * AUTH PLACEHOLDER. The backend currently identifies callers by X-User-Id header.
- * When OTP + JWT login lands, this context holds the token instead and the Profile "dev settings" go away.
- */
+export interface GuestSession {
+  token: string;
+  expiresAt: string;
+  guest: { id: number; name?: string; phone: string };
+}
+
 export interface SessionState {
   userId: number;
   baseUrl: string;
+  auth?: GuestSession;
 }
 
 const DEFAULT_URL =
@@ -20,6 +23,7 @@ const KEY = 'bidstay.session.v1';
 interface Ctx extends SessionState {
   update: (patch: Partial<SessionState>) => void;
   reset: () => void;
+  cacheKey: string;
 }
 
 const SessionContext = createContext<Ctx | null>(null);
@@ -32,7 +36,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     loadItem(KEY).then((raw) => {
       if (raw) {
         try {
-          setState({ ...DEFAULTS, ...JSON.parse(raw) });
+          const restored: SessionState = { ...DEFAULTS, ...JSON.parse(raw) };
+          if (!__DEV__ && restored.baseUrl !== DEFAULT_URL) {
+            restored.baseUrl = DEFAULT_URL;
+            delete restored.auth;
+          }
+          if (Platform.OS === 'web' || !restored.auth || Date.parse(restored.auth.expiresAt) <= Date.now()) {
+            delete restored.auth;
+          }
+          setState(restored);
         } catch {
           /* corrupted: fall back to defaults */
         }
@@ -44,7 +56,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const update = useCallback((patch: Partial<SessionState>) => {
     setState((prev) => {
       const next = { ...prev, ...patch };
-      saveItem(KEY, JSON.stringify(next));
+      if (patch.baseUrl !== undefined && patch.baseUrl !== prev.baseUrl) delete next.auth;
+      // The web app keeps bearer tokens in memory. Native settings use SecureStore.
+      saveItem(KEY, JSON.stringify(Platform.OS === 'web' ? { ...next, auth: undefined } : next));
       return next;
     });
   }, []);
@@ -54,7 +68,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     saveItem(KEY, JSON.stringify(DEFAULTS));
   }, []);
 
-  const value = useMemo(() => ({ ...state, update, reset }), [state, update, reset]);
+  const value = useMemo(() => ({
+    ...state,
+    update,
+    reset,
+    cacheKey: JSON.stringify([state.baseUrl, state.auth?.guest.id ?? (__DEV__ ? state.userId : null), !!state.auth]),
+  }), [state, update, reset]);
   if (!ready) return null;
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

@@ -8,11 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/**
- * ONE place for "who is allowed to do this". Controllers pass the caller's id (today from the
- * X-User-Id dev header). When OTP/JWT login is added, only the way the id is obtained changes;
- * every rule below stays exactly as it is.
- */
+/** Centralizes role and property membership checks for authenticated callers. */
 @Service
 @RequiredArgsConstructor
 public class AccessService {

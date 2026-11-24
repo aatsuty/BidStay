@@ -122,7 +122,7 @@ What is not done yet
 
 Be aware before using this for anything real:
 
-Login is a placeholder. Callers are identified by an X-User-Id header, so anyone can claim any user, including admin. Roles and hotel-ownership checks are enforced, but real phone + OTP login with tokens is needed first.
+Guest signup and sign-in use phone OTP when Twilio Verify is configured (see bidstay-backend/README.md). Demo identities and portal login are available under the dev profile. Production hotel staff and admin sign-in are pending.
 Payment is fake. The Pay button calls a dev-only endpoint. Razorpay is not integrated.
 WhatsApp is simulated inside the hotel portal. Real WhatsApp Business messaging is not connected.
 No hotel payouts, cancellations or refunds yet.
@@ -131,7 +131,7 @@ Test status: the web apps type-check and were tested in a browser against a stan
 Document upload takes a number or link, not a file.
 Roadmap
 Run everything end to end and fix issues
-Phone + OTP login with JWT
+Hotel staff invitations and admin MFA
 Razorpay payments, then hotel payouts, cancellations and refunds
 WhatsApp Business messaging and push notifications
 Deploy (HTTPS, backups, monitoring)

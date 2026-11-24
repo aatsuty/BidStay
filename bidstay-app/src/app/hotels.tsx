@@ -3,10 +3,13 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } fro
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Chip, Empty, ErrorText, Field, Loading } from '@/components/ui';
-import { errorMessage, useApi } from '@/lib/api';
+import { ApiError, errorMessage, useApi } from '@/lib/api';
+import { useSession } from '@/lib/session';
 import { formatDate, inr, nightsBetween } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { BidView, CreateBidInput, HotelSummary, RoomCategory } from '@/lib/types';
+
+const NO_HOTELS: HotelSummary[] = [];
 
 export default function HotelsScreen() {
   const p = useLocalSearchParams<{
@@ -18,18 +21,19 @@ export default function HotelsScreen() {
     category: RoomCategory;
   }>();
   const api = useApi();
+  const { auth, baseUrl, cacheKey } = useSession();
   const qc = useQueryClient();
   const nights = nightsBetween(p.checkIn, p.checkOut);
 
   const hotelsQuery = useQuery({
-    queryKey: ['hotels', p.city, p.category],
+    queryKey: ['hotels', p.city, p.category, baseUrl],
     queryFn: () => api.get<HotelSummary[]>(`/api/v1/hotels?city=${encodeURIComponent(p.city)}&category=${p.category}`),
   });
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [price, setPrice] = useState('');
 
-  const hotels = hotelsQuery.data ?? [];
+  const hotels = hotelsQuery.data ?? NO_HOTELS;
   const chosen = hotels.filter((h) => selected.has(h.id));
 
   // Price guide: average listed price of the hotels in play. (Later: real market data from past bids.)
@@ -43,12 +47,16 @@ export default function HotelsScreen() {
   const priceOk = Number.isFinite(numericPrice) && numericPrice > 0;
 
   const placeBid = useMutation({
+    mutationKey: ['place-bid', cacheKey],
     mutationFn: (body: CreateBidInput) => api.post<BidView>('/api/v1/bids', body),
     onSuccess: (bid) => {
       qc.invalidateQueries({ queryKey: ['bids'] });
       router.replace(`/bid/${bid.bidId}`);
     },
   });
+
+  const signInRequired = (!__DEV__ && !auth)
+    || (placeBid.error instanceof ApiError && placeBid.error.status === 401);
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -163,9 +171,9 @@ export default function HotelsScreen() {
             </View>
           )}
           <Button
-            title={chosen.length ? `Send bid to ${chosen.length} hotel${chosen.length > 1 ? 's' : ''}` : 'Select at least one hotel'}
-            onPress={submit}
-            disabled={!chosen.length || !priceOk}
+            title={signInRequired ? 'Sign in to bid' : chosen.length ? `Send bid to ${chosen.length} hotel${chosen.length > 1 ? 's' : ''}` : 'Select at least one hotel'}
+            onPress={signInRequired ? () => router.push({ pathname: '/(tabs)/profile', params: { from: 'bid' } }) : submit}
+            disabled={!signInRequired && (!chosen.length || !priceOk)}
             loading={placeBid.isPending}
           />
         </View>
