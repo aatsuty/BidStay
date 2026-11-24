@@ -123,6 +123,7 @@ public class GuestAlerts {
     /** Pilot matcher. Each statement claims one bounded due batch across API replicas. */
     @Scheduled(fixedDelayString = "PT15S")
     public void checkDue() {
+        wakeAffectedSearches();
         jdbc.update("""
                 with due as materialized (
                     select s.* from saved_stay_searches s where s.enabled and s.check_in >= ?
@@ -139,6 +140,7 @@ public class GuestAlerts {
                            and (select count(*) from room_inventory i
                                 where i.room_type_id = r.id and i.stay_date >= s.check_in and i.stay_date < s.check_out
                                   and i.total_rooms - i.held_rooms - i.sold_rooms >= s.rooms) = (s.check_out - s.check_in)
+                           and room_has_nightly_capacity(r.id, s.check_in, s.check_out, s.rooms)
                            and not exists(select 1 from guest_alerts a where a.guest_id = s.guest_id
                                  and a.event_key = ('search-' || s.id || '-' || h.id))
                         order by h.id limit 5
@@ -151,6 +153,37 @@ public class GuestAlerts {
                 )
                 update saved_stay_searches set next_check_at = now() + interval '5 minutes'
                   where id in (select id from due)
+                """, LocalDate.now(clock));
+    }
+
+    private void wakeAffectedSearches() {
+        jdbc.update("""
+                with jobs as materialized (
+                    select * from saved_search_rechecks order by id limit 8 for update skip locked
+                ), candidates as materialized (
+                    select j.id as job_id, found.id as search_id from jobs j
+                    join room_types r on r.id = j.room_type_id join hotels h on h.id = r.hotel_id
+                    cross join lateral (
+                        select s.id from saved_stay_searches s
+                        where s.enabled and s.id > j.after_search_id and s.check_in >= ?
+                          and s.city = lower(h.city) and s.category = r.category
+                          and (s.area = '' or s.area = lower(h.area))
+                          and s.check_in < j.until_date and s.check_out + 1 > j.from_date
+                          and r.listed_price <= s.budget and r.max_guests * s.rooms >= s.guests
+                          and not exists(select 1 from guest_alerts g where g.guest_id = s.guest_id
+                              and g.event_key = ('search-' || s.id || '-' || h.id))
+                        order by s.id limit 100
+                    ) found where h.status = 'ACTIVE'
+                ), wake as (
+                    update saved_stay_searches
+                    set next_check_at = least(next_check_at, now())
+                    where id in (select search_id from candidates) and next_check_at > now()
+                ), remaining as (
+                    update saved_search_rechecks j set after_search_id = grouped.last_id
+                    from (select job_id, max(search_id) as last_id from candidates group by job_id having count(*) = 100) grouped
+                    where j.id = grouped.job_id returning j.id
+                )
+                delete from saved_search_rechecks where id in (select id from jobs) and id not in (select id from remaining)
                 """, LocalDate.now(clock));
     }
 

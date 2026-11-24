@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BedDouble, Check, Images, MapPin, Plus, Users, X } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
@@ -10,9 +10,10 @@ import { mediaUrl, rupees } from './models';
 interface Photo { id: number; caption?: string }
 interface Room { id: number; name: string; maxGuests: number; listedPrice: number; photos: Photo[] }
 interface Hotel { id: number; name: string; city: string; area: string; starRating?: number; photos: Photo[]; rooms: Room[]; stayPolicy?: StayPolicy }
+interface PublicReview { rating: number; comment?: string; createdAt: string }
 
-export default function HotelDetails({ id, name, selection, close }: {
-  id: number; name: string; selection?: { selected: boolean; toggle: () => void }; close: () => void;
+export default function HotelDetails({ id, name, selection, bookingAction, close }: {
+  id: number; name: string; selection?: { selected: boolean; toggle: () => void }; bookingAction?: ReactNode; close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const api = useApi();
@@ -22,6 +23,11 @@ export default function HotelDetails({ id, name, selection, close }: {
     queryKey: ['hotel-details', baseUrl, id],
     queryFn: () => api.get<Hotel>('/api/v1/hotels/' + id),
     refetchOnWindowFocus: 'always',
+  });
+  const reviews = useQuery({
+    queryKey: ['hotel-reviews', baseUrl, id],
+    queryFn: () => api.get<PublicReview[]>(`/api/v1/hotels/${id}/reviews`),
+    enabled: hotel.isSuccess,
   });
   useEffect(() => { ref.current?.showModal(); }, []);
 
@@ -62,9 +68,21 @@ export default function HotelDetails({ id, name, selection, close }: {
         <p>Check-in from {hotel.data.stayPolicy.checkInFrom} IST · Check-out by {hotel.data.stayPolicy.checkOutBy} IST</p>
         {hotel.data.stayPolicy.guestInstructions && <p className="guest-stay-instructions">{hotel.data.stayPolicy.guestInstructions}</p>}
       </section>}
-      {selection && <button className="guest-cta" type="button" onClick={() => { selection.toggle(); close(); }}>
-        {selection.selected ? <Check size={16} /> : <Plus size={16} />}{selection.selected ? 'Remove hotel from bid' : 'Add hotel to bid'}
-      </button>}
+      <section className="guest-gallery-reviews">
+        <h3>Verified guest reviews</h3>
+        <ErrorBox error={reviews.error} />
+        {reviews.isSuccess && reviews.data.length === 0 && <p>No published reviews yet.</p>}
+        {reviews.data?.map((review, index) => <article key={review.createdAt + ':' + index}>
+          <strong>{review.rating} / 5</strong>
+          {review.comment && <p>{review.comment}</p>}
+        </article>)}
+      </section>
+      <div className="guest-listing-actions">
+        {selection && <button className="guest-quiet" type="button" onClick={() => { selection.toggle(); close(); }}>
+          {selection.selected ? <Check size={16} /> : <Plus size={16} />}{selection.selected ? 'Remove hotel from bid' : 'Add hotel to bid'}
+        </button>}
+        {bookingAction}
+      </div>
     </>}
   </dialog>;
 }

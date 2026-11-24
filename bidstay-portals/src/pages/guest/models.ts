@@ -11,9 +11,14 @@ export interface HotelResult {
   verified: boolean;
   hotelPhoto?: string;
   roomPhoto?: string;
+  roomTypeId: number;
 }
 
-export interface HotelPage { hotels: HotelResult[]; nextCursor?: number }
+export type DirectTrip = Pick<Booking, 'bookingId' | 'status' | 'checkIn' | 'checkOut' | 'rooms' | 'totalAmount' | 'shortStay'> & {
+  hotelName: string;
+};
+
+export interface HotelPage { hotels: HotelResult[]; nextCursor?: number; areas?: string[] }
 
 export interface Offer {
   offerId: number;
@@ -47,7 +52,7 @@ export interface Booking {
   checkIn: string;
   checkOut: string;
   rooms: number;
-  pricePerNight: number;
+  pricePerNight: number | null;
   totalAmount: number;
   payBy: string;
   hotelName?: string;
@@ -58,6 +63,8 @@ export interface Booking {
   roomName?: string;
   stayPolicy?: StayPolicy;
   receipt?: { reference: string; recordedAt?: string; refundReference?: string; demo: boolean };
+  shortStay?: { arrival: string; departure: string; hours: number; ratePerRoom: number };
+  reviewStatus?: 'ELIGIBLE' | 'PENDING' | 'PUBLISHED' | 'HIDDEN';
 }
 
 export const rupees = new Intl.NumberFormat('en-IN', {
@@ -84,5 +91,6 @@ export const refundLabel = (status: string) => ({
 
 
 export function mediaUrl(api: string, path: string) {
-  return api.replace(/\/$/, '') + path;
+  const origin = import.meta.env.VITE_PUBLIC_MEDIA_URL || api;
+  return origin.replace(/\/$/, '') + path;
 }

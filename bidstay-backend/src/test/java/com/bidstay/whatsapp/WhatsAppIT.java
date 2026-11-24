@@ -12,6 +12,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -52,6 +53,7 @@ class WhatsAppIT {
     @Autowired MockMvc mvc;
     @MockBean WhatsAppClient transport;
     @MockBean BidReplyAssistant ai;
+    @MockBean TaskScheduler scheduler; // These tests drive the inbox and outbox workers explicitly.
 
     @Test
     void providerReplyUsesItsQuotedOfferAndAnAiDraftNeedsConfirmation() throws Exception {

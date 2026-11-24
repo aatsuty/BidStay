@@ -241,7 +241,9 @@ public class PartnerService {
     public List<BookingRow> bookings(Long hotelId) {
         return jdbc.query("""
                 select b.id, b.status, rt.name, b.check_in, b.check_out, b.rooms, b.price_per_night,
-                       b.total_amount, b.commission_amount, u.name, u.phone
+                       b.total_amount, b.commission_amount, u.name, u.phone,
+                       case when b.hourly_rate is not null then b.arrival_at end,
+                       case when b.hourly_rate is not null then b.departure_at end, b.hourly_rate
                 from bookings b
                 join room_types rt on rt.id = b.room_type_id
                 join users u on u.id = b.guest_id
@@ -250,7 +252,10 @@ public class PartnerService {
                 """, (rs, i) -> new BookingRow(rs.getLong(1), rs.getString(2), rs.getString(3),
                 rs.getDate(4).toLocalDate(), rs.getDate(5).toLocalDate(), rs.getInt(6), rs.getBigDecimal(7),
                 rs.getBigDecimal(8), rs.getBigDecimal(9), rs.getBigDecimal(8).subtract(rs.getBigDecimal(9)),
-                rs.getString(10), rs.getString(11)), hotelId);
+                rs.getString(10), rs.getString(11),
+                rs.getObject(12, java.time.OffsetDateTime.class) == null ? null : rs.getTimestamp(12).toInstant(),
+                rs.getObject(13, java.time.OffsetDateTime.class) == null ? null : rs.getTimestamp(13).toInstant(),
+                rs.getBigDecimal(14)), hotelId);
     }
 
     @Transactional(readOnly = true)

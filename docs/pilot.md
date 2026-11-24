@@ -34,6 +34,8 @@ Set credentials in the backend environment or secret manager.
 
 The guest receipt records the payment and any recorded refund reference. Agree on tax invoice and settlement responsibilities with the hotel before accepting live money.
 
+To test listed-price checkout, open a dated hotel result and choose **Book at listed price**. For hourly checkout, first save the overnight policy in **Profile & documents**, then publish 3- and 6-hour prices for the room under **Rates & rules → Hourly stays**. Search **Hourly stays** on web or in Expo and choose an arrival time. Complete the booking and verify the slot in both **My trips** and the hotel’s **Bookings** screen.
+
 Create approved WhatsApp templates with the configured `WHATSAPP_TEMPLATE_LANGUAGE`. The placeholders must match this order.
 
 | Template variable | Body placeholders |
@@ -59,4 +61,18 @@ Use the `dev` profile only on local test systems. The public instance needs HTTP
 - WhatsApp notifications are written to an outbox with the business action. Workers can claim queued rows across instances. Delivery events and inbound message IDs are deduplicated. Allow for a repeated outgoing message if a provider accepts it and the network drops its response.
 - Search filters dated capacity and uses cursor paging. The admin verification list is paged. Inventory generation uses idempotent batches.
 - Measure API latency, database wait time, late payment rate, and message queue age before increasing bid fan-out. At 100 bids per second, a cap of 50 hotels allows up to 5,000 evaluations per second.
-- Before scaling past the pilot, add load and recovery testing, backup restore drills, deployment monitoring, and a shared rate limiter. Evaluate incremental live updates if polling becomes a significant load. Provider account limits, payment settlements, and production tax rules need validation with pilot partners.
+- Provider account limits, payment settlements and production tax rules need validation with pilot partners. Use production-like staging to measure peak throughput and confirm recovery time against the pilot's targets.
+
+### Local capacity and recovery checks
+
+Run `BIDSTAY_LOAD_URL=http://localhost:8080 node scripts/pilot-load.mjs` from the repository root against the seeded development API with an isolated database. The harness uses demo guests, creates bids and sets a future room pool to one room. It verifies dated search, bid fan-out and that one checkout wins the last room. Enable hourly rates for the seeded Standard Room to include both booking formats in the race.
+
+On the local seeded PostgreSQL run at concurrency 12, all 180 search requests and 48 bids to four hotels succeeded. Search p95 was 123 ms and bid p95 was 367 ms. Of 24 overlapping hourly and overnight checkout attempts, one held the last room. These measurements describe the local fixture with external providers disabled.
+
+For a database restore drill, take a PostgreSQL custom-format dump with `pg_dump -Fc` and use `pg_restore --no-owner` against a freshly created scratch database. Compare booking, review, saved-alert and photo row counts and run availability checks against the restored copy. Back up and restore the media store separately. Verify that an approved listing renders and a restricted document still requires an authorised reviewer.
+
+The local restore retained row counts, the confirmed hourly stay and its occupied slot, and the approved review. An approved thumbnail and a private verification file matched the originals byte for byte. A guest request for the private file returned 403.
+
+### Public media edge cache
+
+Set `VITE_PUBLIC_MEDIA_URL` and `EXPO_PUBLIC_MEDIA_URL` to the CDN origin. Route only `/api/v1/media/*` through that origin and configure it to honour the response TTL. Set `BIDSTAY_MEDIA_EDGE_TTL_SECONDS` on the API to opt into shared caching, capped at 300 seconds. Purge both the thumbnail and full image URL when a photo is withdrawn. Keep partner previews, admin previews and verification documents on the authenticated API origin.

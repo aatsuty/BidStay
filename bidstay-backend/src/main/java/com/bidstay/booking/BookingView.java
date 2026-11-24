@@ -10,6 +10,7 @@ import java.time.LocalDate;
 public record BookingView(Long bookingId, BookingStatus status, LocalDate checkIn, LocalDate checkOut,
                           int rooms, BigDecimal pricePerNight, BigDecimal totalAmount,
                           Instant payBy, String hotelName, String hotelAddress, Instant freeCancelUntil, String refundStatus,
-                          long nights, String roomName, StayPolicy stayPolicy, PaymentReceipt receipt) {
+                          long nights, String roomName, StayPolicy stayPolicy, PaymentReceipt receipt, ShortStay shortStay, String reviewStatus) {
     public record PaymentReceipt(String reference, Instant recordedAt, String refundReference, boolean demo) {}
+    public record ShortStay(Instant arrival, Instant departure, long hours, BigDecimal ratePerRoom) {}
 }

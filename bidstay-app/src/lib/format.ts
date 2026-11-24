@@ -2,8 +2,14 @@ import { useEffect, useState } from 'react';
 
 export function inr(n: number | null | undefined): string {
   if (n == null) return '—';
-  return '₹' + Math.round(n).toLocaleString('en-IN');
+  return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
+
+const indiaTime = new Intl.DateTimeFormat('en-IN', {
+  dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
+});
+
+export const indiaDateTime = (iso: string) => indiaTime.format(new Date(iso)) + ' IST';
 
 /** yyyy-mm-dd in the device's local calendar (what the backend LocalDate expects). */
 export function toISODate(d: Date): string {

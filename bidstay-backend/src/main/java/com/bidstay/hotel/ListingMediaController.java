@@ -4,6 +4,7 @@ import com.bidstay.auth.CallerId;
 import com.bidstay.common.ApiException;
 import com.bidstay.user.AccessService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -19,11 +21,15 @@ import java.io.IOException;
 class ListingMediaController {
     private final ListingMedia media;
     private final AccessService access;
+    @Value("${bidstay.media.edge-ttl-seconds:0}") private int edgeTtl;
 
     @GetMapping("/media/{id}/{size}")
     ResponseEntity<byte[]> publicImage(@PathVariable long id, @PathVariable String size) {
         if (!"thumb".equals(size) && !"full".equals(size)) throw ApiException.notFound("Photo");
-        return image(media.publicImage(id, "thumb".equals(size)), CacheControl.noCache().cachePublic());
+        CacheControl caching = edgeTtl > 0
+                ? CacheControl.maxAge(Duration.ZERO).sMaxAge(Duration.ofSeconds(Math.min(edgeTtl, 300))).mustRevalidate().cachePublic()
+                : CacheControl.noCache().cachePublic();
+        return image(media.publicImage(id, "thumb".equals(size)), caching);
     }
 
     @GetMapping("/partner/hotels/{hotelId}/media")

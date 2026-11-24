@@ -5,6 +5,7 @@ import { inr } from '../../lib/format';
 import type { Rates as RatesT } from '../../lib/types';
 import { ErrorBox, Loading, PageHead } from '../../components/ui';
 import { useHotel } from './HotelContext';
+import HourlyRates from './HourlyRates';
 
 export default function Rates() {
   const { hotel } = useHotel();
@@ -14,7 +15,8 @@ export default function Rates() {
     <>
       <PageHead title="Rates & rules" sub="Your minimum price is private. Guests never see it." />
       <ErrorBox error={q.error} />
-      {q.isLoading || !q.data ? <Loading /> : <RatesForm key={hotel.id} initial={q.data} />}
+      {q.isLoading || !q.data ? <Loading /> : <RatesForm key={`nightly-${hotel.id}`} initial={q.data} />}
+      <HourlyRates key={`hourly-${hotel.id}`} hotelId={hotel.id} />
     </>
   );
 }

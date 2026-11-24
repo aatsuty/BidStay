@@ -23,7 +23,8 @@ export interface RoomAvailability { roomTypeId: number; name: string; nights: Ni
 
 export interface PartnerBooking {
   bookingId: number; status: string; roomType: string; checkIn: string; checkOut: string; rooms: number;
-  pricePerNight: number; total: number; commission: number; payout: number; guestName: string; guestPhone: string;
+  pricePerNight?: number; total: number; commission: number; payout: number; guestName: string; guestPhone: string;
+  arrival?: string; departure?: string; hourlyRate?: number;
 }
 export interface Dashboard {
   pendingReplies: number; bidsLast30Days: number; acceptedLast30Days: number; counteredLast30Days: number;
@@ -48,5 +49,5 @@ export interface AdminHotel {
   id: number; name: string; city: string; area: string; status: HotelStatus; rejectionReason?: string;
   contactPhone?: string; gstNumber?: string; roomTypes: number; createdAt: string; allDocsVerified: boolean; documents: DocumentView[];
 }
-export interface AdminBooking { id: number; hotel: string; guest: string; status: string; checkIn: string; checkOut: string; rooms: number; total: number; commission: number; createdAt: string }
+export interface AdminBooking { id: number; hotel: string; guest: string; status: string; checkIn: string; checkOut: string; rooms: number; total: number; commission: number; createdAt: string; arrival?: string; departure?: string }
 export interface AdminBid { id: number; guest: string; category: string; checkIn: string; checkOut: string; rooms: number; pricePerNight: number; round: number; status: string; offers: number; offersReady: number; createdAt: string }

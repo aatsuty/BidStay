@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, CreditCard, Hotel, Images, MapPin, Printer } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
@@ -8,8 +8,9 @@ import { countdown, fmtDate, useNow } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import { useGuest } from './GuestShell';
 import HotelDetails from './HotelDetails';
+import ReviewForm from './ReviewForm';
 import WhatsAppPreference from '../WhatsAppPreference';
-import { indiaDateTime, offerReady, refundLabel, rupees, type Bid, type Booking, type Offer } from './models';
+import { indiaDateTime, offerReady, refundLabel, rupees, type Bid, type Booking, type DirectTrip, type Offer } from './models';
 
 function TripPage({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
   return (
@@ -38,12 +39,30 @@ export function Trips() {
   const { cacheKey } = useSession();
   const api = useApi();
   const trips = useQuery({ queryKey: ['guest-trips', cacheKey], enabled: signedIn, queryFn: () => api.get<Bid[]>('/api/v1/bids') });
+  const direct = useInfiniteQuery({
+    queryKey: ['guest-direct-trips', cacheKey], enabled: signedIn, initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.get<DirectTrip[]>('/api/v1/bookings/direct' + (pageParam ? '?before=' + pageParam : '')),
+    getNextPageParam: (page) => page.length === 50 ? page.at(-1)?.bookingId : undefined,
+  });
+  const bookings = direct.data?.pages.flatMap((page) => page) ?? [];
   return <TripPage title="My trips" sub="Track your bids and revisit your bookings.">
     {!signedIn ? <SignInPrompt /> : <>
       <WhatsAppPreference endpoint="/api/v1/whatsapp/guest" label="Get trip updates on WhatsApp" />
-      <ErrorBox error={trips.error} />
-      {trips.isPending && <p role="status">Loading trips…</p>}
-      {trips.data?.length === 0 && <div className="guest-empty"><CalendarDays size={24} /><h3>No trips yet</h3><Link to="/" className="guest-cta">Find hotels</Link></div>}
+      <ErrorBox error={trips.error ?? direct.error} />
+      {(trips.isPending || direct.isPending) && <p role="status">Loading trips…</p>}
+      {trips.data?.length === 0 && direct.isSuccess && bookings.length === 0 && <div className="guest-empty"><CalendarDays size={24} /><h3>No trips yet</h3><Link to="/" className="guest-cta">Find hotels</Link></div>}
+      {bookings.length > 0 && <div className="guest-trip-list">
+        <h2>Direct bookings</h2>
+        {bookings.map((booking) => <Link className="guest-trip-row" key={booking.bookingId} to={'/checkout/' + booking.bookingId}>
+          <span className="guest-hotel-icon"><Hotel size={21} /></span>
+          <span><strong>{booking.hotelName}</strong><small>{booking.shortStay
+            ? `${indiaDateTime(booking.shortStay.arrival)} · ${booking.shortStay.hours} hours`
+            : `${fmtDate(booking.checkIn)} – ${fmtDate(booking.checkOut)}`} · {rupees.format(booking.totalAmount)}</small></span>
+          <span className="guest-state">{statusLabel(booking.status)}</span><ArrowRight size={18} />
+        </Link>)}
+        {direct.hasNextPage && <button type="button" className="guest-quiet" disabled={direct.isFetchingNextPage}
+          onClick={() => { void direct.fetchNextPage(); }}>Load more bookings</button>}
+      </div>}
       <div className="guest-trip-list">{trips.data?.map((bid) => (
         <Link className="guest-trip-row" key={bid.bidId} to={bid.bookingId ? '/checkout/' + bid.bookingId : '/offers/' + bid.bidId}>
           <span className="guest-hotel-icon"><CalendarDays size={21} /></span>
@@ -170,13 +189,21 @@ export function Checkout() {
   });
   const cancel = useMutation({
     mutationFn: () => api.post<Booking>(`/api/v1/bookings/${bookingId}/cancel`),
-    onSuccess: (booking) => { qc.setQueryData(key, booking); void qc.invalidateQueries({ queryKey: ['guest-trips'] }); },
+    onSuccess: (booking) => {
+      qc.setQueryData(key, booking);
+      void qc.invalidateQueries({ queryKey: ['guest-trips', cacheKey] });
+      void qc.invalidateQueries({ queryKey: ['guest-direct-trips', cacheKey] });
+    },
   });
   const options = useQuery({ queryKey: ['payment-options', cacheKey], enabled: signedIn, queryFn: () => api.get<{ razorpay: boolean }>('/api/v1/payments/options') });
   const paymentLink = useMutation({ mutationFn: () => api.post<{ url: string }>(`/api/v1/bookings/${bookingId}/payment-link`) });
   const pay = useMutation({
     mutationFn: () => api.post<Booking>(`/api/v1/dev/bookings/${bookingId}/confirm-payment`, { paymentRef: 'web_demo_' + Date.now() }),
-    onSuccess: (booking) => { qc.setQueryData(key, booking); void qc.invalidateQueries({ queryKey: ['guest-trips'] }); },
+    onSuccess: (booking) => {
+      qc.setQueryData(key, booking);
+      void qc.invalidateQueries({ queryKey: ['guest-trips', cacheKey] });
+      void qc.invalidateQueries({ queryKey: ['guest-direct-trips', cacheKey] });
+    },
   });
   const booking = result.data;
   const pending = booking?.status === 'PENDING_PAYMENT';
@@ -197,14 +224,18 @@ export function Checkout() {
         {booking.hotelAddress && <p><MapPin size={15} /> {booking.hotelAddress}</p>}
         {booking.roomName && <p>{booking.roomName}</p>}
         <div className="guest-stay-dates">
-          <div><span>Check-in</span><strong><CalendarDays size={15} /> {fmtDate(booking.checkIn)}</strong>
-            {booking.stayPolicy?.checkInFrom && <small>From {booking.stayPolicy.checkInFrom} IST</small>}</div>
-          <div><span>Check-out</span><strong><CalendarDays size={15} /> {fmtDate(booking.checkOut)}</strong>
-            {booking.stayPolicy?.checkOutBy && <small>By {booking.stayPolicy.checkOutBy} IST</small>}</div>
+          <div><span>Check-in</span><strong><CalendarDays size={15} /> {booking.shortStay
+            ? indiaDateTime(booking.shortStay.arrival) : fmtDate(booking.checkIn)}</strong>
+            {!booking.shortStay && booking.stayPolicy?.checkInFrom && <small>From {booking.stayPolicy.checkInFrom} IST</small>}</div>
+          <div><span>Check-out</span><strong><CalendarDays size={15} /> {booking.shortStay
+            ? indiaDateTime(booking.shortStay.departure) : fmtDate(booking.checkOut)}</strong>
+            {!booking.shortStay && booking.stayPolicy?.checkOutBy && <small>By {booking.stayPolicy.checkOutBy} IST</small>}</div>
         </div>
         <div className="guest-price-breakdown">
-          <span>{rupees.format(booking.pricePerNight)} per room per night</span>
-          <span>{booking.rooms} {booking.rooms === 1 ? 'room' : 'rooms'} × {booking.nights} {booking.nights === 1 ? 'night' : 'nights'}</span>
+          <span>{booking.shortStay
+            ? `${rupees.format(booking.shortStay.ratePerRoom)} per room for ${booking.shortStay.hours} hours`
+            : `${rupees.format(booking.pricePerNight ?? 0)} per room per night`}</span>
+          <span>{booking.rooms} {booking.rooms === 1 ? 'room' : 'rooms'}{!booking.shortStay && ` × ${booking.nights} ${booking.nights === 1 ? 'night' : 'nights'}`}</span>
         </div>
         <div className="guest-checkout-total"><span>{booking.receipt ? 'Original payment' : 'Total for your stay'}</span><strong>{rupees.format(booking.totalAmount)}</strong></div>
         {(pending || confirmed || booking.stayPolicy?.guestInstructions) && <div className="guest-stay-terms">
@@ -236,6 +267,8 @@ export function Checkout() {
           {!pending && <Link to="/trips" className="guest-quiet">View my trips <ArrowRight size={17} /></Link>}
         </div>
       </section>}
+      {booking?.reviewStatus && <ReviewForm key={booking.bookingId} bookingId={booking.bookingId} status={booking.reviewStatus}
+        onSubmitted={() => { void qc.invalidateQueries({ queryKey: key }); }} />}
     </>}
   </TripPage>;
 }

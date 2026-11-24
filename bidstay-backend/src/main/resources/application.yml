@@ -35,6 +35,8 @@ bidstay:
     local-path: ${BIDSTAY_DOCUMENT_LOCAL_PATH:.bidstay-documents}
   booking:
     free-cancellation: ${BIDSTAY_FREE_CANCELLATION:false}
+  media:
+    edge-ttl-seconds: ${BIDSTAY_MEDIA_EDGE_TTL_SECONDS:0}
   whatsapp:
     token: ${WHATSAPP_TOKEN:}
     phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}

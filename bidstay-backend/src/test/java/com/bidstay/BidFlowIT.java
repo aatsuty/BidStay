@@ -8,12 +8,16 @@ import com.bidstay.bidding.BidStatus;
 import com.bidstay.bidding.HotelAction;
 import com.bidstay.bidding.OfferStatus;
 import com.bidstay.booking.BookingService;
+import com.bidstay.booking.BookingController.HourlyStay;
+import com.bidstay.booking.BookingController.ListedStay;
 import com.bidstay.booking.BookingStatus;
 import com.bidstay.booking.BookingView;
 import com.bidstay.common.ApiException;
 import com.bidstay.hotel.HotelRepository;
 import com.bidstay.hotel.HotelStatus;
 import com.bidstay.hotel.RoomCategory;
+import com.bidstay.hotel.HourlyStays;
+import com.bidstay.inventory.InventoryService;
 import com.bidstay.partner.InventoryJobs;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationState;
@@ -43,8 +47,10 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -81,6 +87,8 @@ class BidFlowIT {
     @Autowired ObjectMapper json;
     @Autowired GuestAlerts alerts;
     @Autowired JdbcTemplate jdbc;
+    @Autowired InventoryService inventory;
+    @Autowired HourlyStays hourly;
 
     @Test
     void devDemoAccountsStillReachTheirRoutes() throws Exception {
@@ -349,6 +357,132 @@ class BidFlowIT {
                 () -> bidService.acceptOffer(1L, bid.bidId(), accepted.offerId())).getStatus());
         assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class, () -> bidService.respond(sunrise(), pending.offerId(),
                 new HotelRespond(HotelAction.DECLINE, null, 1))).getStatus());
+    }
+
+    @Test
+    void postStayReviewIsOwnedModeratedAndPublicWithoutGuestIdentity() throws Exception {
+        Long roomType = jdbc.queryForObject("select id from room_types where hotel_id = ? and category = 'STANDARD'", Long.class, sunrise());
+        LocalDate future = LocalDate.now().plusDays(27);
+        var hold = bookingService.startListed(1L, new ListedStay(UUID.randomUUID(), roomType, future, future.plusDays(1),
+                1, 2, new BigDecimal("1800")));
+        bookingService.confirmPayment(hold.bookingId(), "review_demo_it");
+        String review = "/api/v1/bookings/" + hold.bookingId() + "/review";
+        String input = """
+                {"rating":5,"comment":"A clean room."}
+                """;
+        mvc.perform(post(review).header("X-User-Id", 1).contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isConflict());
+        jdbc.update("""
+                update bookings set check_in = current_date - 4, check_out = current_date - 3,
+                    arrival_at = null, departure_at = null, blocked_until = null where id = ?
+                """, hold.bookingId());
+        mvc.perform(post(review).header("X-User-Id", 2).contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isNotFound());
+        mvc.perform(post(review).header("X-User-Id", 1).contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isNoContent());
+        mvc.perform(post(review).header("X-User-Id", 1).contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isConflict());
+        String publicReviews = "/api/v1/hotels/" + sunrise() + "/reviews";
+        mvc.perform(get(publicReviews)).andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        String publish = "/api/v1/admin/reviews/" + hold.bookingId() + "/PUBLISHED";
+        mvc.perform(post(publish).header("X-User-Id", 3)).andExpect(status().isForbidden());
+        mvc.perform(post(publish).header("X-User-Id", 4)).andExpect(status().isNoContent());
+        mvc.perform(get(publicReviews)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].rating").value(5)).andExpect(jsonPath("$[0].guestId").doesNotExist())
+                .andExpect(jsonPath("$[0].bookingId").doesNotExist());
+    }
+
+    @Test
+    void listedRateDropWakesMatchingSavedSearchBeforeScanIsDue() throws Exception {
+        Long roomType = jdbc.queryForObject("select id from room_types where hotel_id = ? and category = 'STANDARD'", Long.class, sunrise());
+        LocalDate date = LocalDate.now().plusDays(28);
+        var request = new GuestAlerts.SaveSearch("Delhi", "Paharganj", date, date.plusDays(1), RoomCategory.STANDARD, 1, 2,
+                new BigDecimal("1250"));
+        var response = mvc.perform(post("/api/v1/guest/saved-searches").header("X-User-Id", 1)
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(request)))
+                .andExpect(status().isCreated()).andReturn().getResponse();
+        long searchId = json.readTree(response.getContentAsString()).path("id").asLong();
+        jdbc.update("update saved_stay_searches set next_check_at = now() + interval '1 day' where id = ?", searchId);
+        try {
+            jdbc.update("update room_types set listed_price = 1249 where id = ?", roomType);
+            for (int attempt = 0; attempt < 8; attempt++) alerts.checkDue();
+            assertEquals(1, jdbc.queryForObject("""
+                    select count(*) from guest_alerts where guest_id = 1 and event_key = ?
+                    """, Integer.class, "search-" + searchId + "-" + sunrise()));
+        } finally {
+            jdbc.update("update room_types set listed_price = 1800 where id = ?", roomType);
+        }
+    }
+
+    @Test
+    void listedCheckoutUsesAuthoritativeRateAndIsPrivateAndIdempotent() throws Exception {
+        Long roomType = jdbc.queryForObject("select id from room_types where hotel_id = ? and category = 'STANDARD'", Long.class, sunrise());
+        LocalDate arrival = LocalDate.now().plusDays(26);
+        UUID request = UUID.randomUUID();
+        var stale = new ListedStay(request, roomType, arrival, arrival.plusDays(2), 1, 2, new BigDecimal("1799"));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class, () -> bookingService.startListed(1L, stale)).getStatus());
+        var stay = new ListedStay(request, roomType, arrival, arrival.plusDays(2), 1, 2, new BigDecimal("1800"));
+        var pending = bookingService.startListed(1L, stay);
+        assertEquals(0, new BigDecimal("3600").compareTo(pending.totalAmount()));
+        assertNull(pending.hotelAddress());
+        assertEquals(pending.bookingId(), bookingService.startListed(1L, stay).bookingId());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class, () -> bookingService.startListed(1L, stale)).getStatus());
+        assertNull(jdbc.queryForObject("select bid_request_id from bookings where id = ?", Long.class, pending.bookingId()));
+        mvc.perform(get("/api/v1/bookings/{id}", pending.bookingId()).header("X-User-Id", 2))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/bookings/direct").header("X-User-Id", 1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].bookingId").value(pending.bookingId()));
+        var paid = bookingService.confirmPayment(pending.bookingId(), "listed_demo_it");
+        assertEquals(BookingStatus.CONFIRMED, paid.status());
+        assertNotNull(paid.hotelAddress());
+        assertEquals(BookingStatus.CANCELLED, bookingService.cancel(1L, pending.bookingId()).status());
+    }
+
+    @Test
+    void hourlyAndOvernightCheckoutsCompeteForSameCapacity() throws Exception {
+        Long hotelId = jdbc.queryForObject("""
+                insert into hotels (name, city, area, address, status)
+                values ('Hourly QA Hotel', 'Hourly QA', 'Downtown', 'Test address', 'ACTIVE') returning id
+                """, Long.class);
+        Long roomType = jdbc.queryForObject("""
+                insert into room_types (hotel_id, category, name, max_guests, listed_price, min_price, total_rooms)
+                values (?, 'STANDARD', 'Standard', 2, 1800, 1200, 1) returning id
+                """, Long.class, hotelId);
+        LocalDate date = LocalDate.now().plusDays(6);
+        inventory.ensureRange(roomType, date, date.plusDays(3), 1);
+        jdbc.update("insert into hotel_stay_policies(hotel_id, check_in_from, check_out_by) values (?, time '14:00', time '11:00')", hotelId);
+        String hourlyUrl = "/api/v1/partner/hotels/" + hotelId + "/hourly/" + roomType;
+        String config = """
+                {"enabled":true,"threeHours":700,"sixHours":1200}
+                """;
+        mvc.perform(put(hourlyUrl).header("X-User-Id", 3).contentType(MediaType.APPLICATION_JSON).content(config))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(hourlyUrl).header("X-User-Id", 4).contentType(MediaType.APPLICATION_JSON).content(config))
+                .andExpect(status().isNoContent());
+
+        var morning = bookingService.startHourly(1L, new HourlyStay(UUID.randomUUID(), roomType, date,
+                LocalTime.of(8, 0), 3, 1, 2, new BigDecimal("700")));
+        assertEquals(3, morning.shortStay().hours());
+        assertEquals(0, new BigDecimal("700").compareTo(morning.totalAmount()));
+        assertTrue(hourly.search("Hourly QA", date, LocalTime.of(11, 0), 3, RoomCategory.STANDARD, 1, 2, 0).hotels().isEmpty());
+        assertEquals(1, hourly.search("Hourly QA", date, LocalTime.of(11, 30), 3, RoomCategory.STANDARD, 1, 2, 0).hotels().size());
+        assertThrows(ApiException.class, () -> inventory.setTotal(roomType, date, date.plusDays(1), 0));
+
+        var noon = new HourlyStay(UUID.randomUUID(), roomType, date, LocalTime.of(12, 0), 6, 1, 2, new BigDecimal("1200"));
+        var overnight = new ListedStay(UUID.randomUUID(), roomType, date, date.plusDays(1), 1, 2, new BigDecimal("1800"));
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var start = new CountDownLatch(1);
+            var dayUse = executor.submit(() -> attempt(start, () -> bookingService.startHourly(1L, noon)));
+            var nightUse = executor.submit(() -> attempt(start, () -> bookingService.startListed(2L, overnight)));
+            start.countDown();
+            boolean hourlyWon = dayUse.get(10, TimeUnit.SECONDS);
+            assertNotEquals(hourlyWon, nightUse.get(10, TimeUnit.SECONDS));
+            BookingView winner = hourlyWon ? bookingService.startHourly(1L, noon) : bookingService.startListed(2L, overnight);
+            long owner = hourlyWon ? 1L : 2L;
+            assertEquals(BookingStatus.CONFIRMED, bookingService.confirmPayment(winner.bookingId(), "shared_demo_it").status());
+            bookingService.cancel(owner, winner.bookingId());
+            assertEquals(1, hourly.search("Hourly QA", date, LocalTime.of(12, 0), 6, RoomCategory.STANDARD, 1, 2, 0).hotels().size());
+        }
     }
 
     @Test

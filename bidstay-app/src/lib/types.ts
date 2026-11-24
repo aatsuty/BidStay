@@ -25,6 +25,7 @@ export interface HotelSummary {
   listedPrice: number;
   hotelPhoto?: string;
   roomPhoto?: string;
+  roomTypeId?: number;
 }
 
 export interface OfferView {
@@ -59,7 +60,7 @@ export interface BookingView {
   checkIn: string;
   checkOut: string;
   rooms: number;
-  pricePerNight: number;
+  pricePerNight: number | null;
   totalAmount: number;
   payBy: string;
   hotelName?: string;
@@ -70,7 +71,10 @@ export interface BookingView {
   freeCancelUntil?: string;
   refundStatus?: string;
   receipt?: { reference: string; recordedAt?: string; refundReference?: string; demo: boolean };
+  shortStay?: { arrival: string; departure: string; hours: number; ratePerRoom: number };
 }
+
+export type DirectTrip = Pick<BookingView, 'bookingId' | 'status' | 'checkIn' | 'checkOut' | 'totalAmount' | 'shortStay'> & { hotelName: string };
 
 export interface HotelOfferView {
   offerId: number;

@@ -5,6 +5,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-q
 import { Button, Card, Chip, Empty, ErrorText, Field, Loading } from '@/components/ui';
 import { ApiError, errorMessage, useApi } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useDirectCheckout } from '@/lib/direct-checkout';
 import { formatDate, inr, nightsBetween } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { BidView, CreateBidInput, HotelSummary, RoomCategory } from '@/lib/types';
@@ -22,8 +23,10 @@ export default function HotelsScreen() {
   }>();
   const api = useApi();
   const { auth, baseUrl, cacheKey } = useSession();
+  const mediaOrigin = process.env.EXPO_PUBLIC_MEDIA_URL || baseUrl;
   const qc = useQueryClient();
   const nights = nightsBetween(p.checkIn, p.checkOut);
+  const direct = useDirectCheckout();
 
   const hotelsQuery = useInfiniteQuery({
     queryKey: ['hotels', baseUrl, p.city, p.category, p.checkIn, p.checkOut, p.rooms, p.guests],
@@ -117,9 +120,9 @@ export default function HotelsScreen() {
           const on = selected.has(h.id);
           const photo = h.roomPhoto ?? h.hotelPhoto;
           return (
-            <Pressable key={h.id} onPress={() => toggle(h.id)}>
-              <Card style={on ? { borderColor: colors.primary, borderWidth: 2 } : undefined}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Card key={h.id} style={on ? { borderColor: colors.primary, borderWidth: 2 } : undefined}>
+              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => toggle(h.id)}
+                style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <View
                     style={{
                       width: 24,
@@ -135,7 +138,7 @@ export default function HotelsScreen() {
                   >
                     {on && <Text style={{ color: '#fff', fontWeight: '800' }}>✓</Text>}
                   </View>
-                  {photo && <Image source={{ uri: baseUrl.replace(/\/$/, '') + photo }}
+                  {photo && <Image source={{ uri: mediaOrigin.replace(/\/$/, '') + photo }}
                     accessibilityLabel={h.roomPhoto ? h.name + ' room' : h.name}
                     style={{ width: 62, height: 56, borderRadius: 8, marginRight: 9 }} />}
                   <View style={{ flex: 1 }}>
@@ -149,9 +152,13 @@ export default function HotelsScreen() {
                     <Text style={{ color: colors.muted, fontSize: 12 }}>Listed</Text>
                     <Text style={{ fontWeight: '700', color: colors.text }}>{inr(h.listedPrice)}</Text>
                   </View>
-                </View>
-              </Card>
-            </Pressable>
+              </Pressable>
+              {h.roomTypeId != null && <Button variant="ghost"
+                title={direct.signInRequired ? 'Sign in to book' : `Book at listed price · ${inr(h.listedPrice * nights * Number(p.rooms))}`}
+                disabled={direct.isPending || placeBid.isPending} style={{ marginTop: 8 }}
+                onPress={() => direct.begin({ roomTypeId: h.roomTypeId!, checkIn: p.checkIn, checkOut: p.checkOut,
+                  rooms: Number(p.rooms), guests: Number(p.guests), listedRate: h.listedPrice })} />}
+            </Card>
           );
         })}
         {hotelsQuery.hasNextPage && <Button title="Load more hotels" variant="ghost" loading={hotelsQuery.isFetchingNextPage}
@@ -170,6 +177,7 @@ export default function HotelsScreen() {
           }}
         >
           <ErrorText message={placeBid.error ? errorMessage(placeBid.error) : null} />
+          <ErrorText message={direct.error ? errorMessage(direct.error) : null} />
           <Field
             label={`Your price per night${guide ? ` (avg listed ${inr(guide)})` : ''}`}
             value={price}

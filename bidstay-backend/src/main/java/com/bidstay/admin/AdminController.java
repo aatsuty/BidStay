@@ -1,6 +1,7 @@
 package com.bidstay.admin;
 
 import com.bidstay.auth.CallerId;
+import com.bidstay.booking.BookingReviews;
 import com.bidstay.hotel.HotelDocumentFiles;
 import com.bidstay.common.ApiException;
 import org.springframework.http.CacheControl;
@@ -27,11 +28,33 @@ public class AdminController {
     private final AdminService service;
     private final AccessService access;
     private final HotelDocumentFiles files;
+    private final BookingReviews reviews;
+
+    @GetMapping("/reviews")
+    public List<BookingReviews.AdminReview> reviews(@CallerId Long userId,
+                                                   @RequestParam(defaultValue = "PENDING") BookingReviews.ReviewStatus status,
+                                                   @RequestParam(defaultValue = "9223372036854775807") long before) {
+        access.requireAdmin(userId);
+        return reviews.adminQueue(status, before);
+    }
+
+    @PostMapping("/reviews/{bookingId}/{status}")
+    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    public void moderate(@CallerId Long userId, @PathVariable Long bookingId, @PathVariable BookingReviews.ReviewStatus status) {
+        access.requireAdmin(userId);
+        reviews.moderate(userId, bookingId, status);
+    }
 
     @GetMapping("/stats")
     public Stats stats(@CallerId Long userId) {
         access.requireAdmin(userId);
         return service.stats();
+    }
+
+    @GetMapping("/market")
+    public AdminService.MarketStats market(@CallerId Long userId, @RequestParam String city, @RequestParam String area) {
+        access.requireAdmin(userId);
+        return service.market(city, area);
     }
 
     @GetMapping("/hotels")

@@ -9,9 +9,12 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
     List<Booking> findByBidRequestIdOrderByIdDesc(Long bidRequestId);
+    Optional<Booking> findByGuestIdAndDirectRequestId(Long guestId, UUID directRequestId);
+    List<Booking> findTop50ByGuestIdAndDirectRequestIdIsNotNullAndIdLessThanOrderByIdDesc(Long guestId, Long before);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from Booking b where b.id = :id")

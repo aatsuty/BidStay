@@ -9,6 +9,9 @@ export function fmtDate(iso: string): string {
 
 export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 export const fmtDateTime = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+export const fmtIndiaTime = (iso: string) => new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+}).format(new Date(iso));
 
 export function useNow(ms = 1000) {
   const [now, setNow] = useState(Date.now);

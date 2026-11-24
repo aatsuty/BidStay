@@ -5,6 +5,7 @@ import com.bidstay.bidding.BidDtos.HotelOfferView;
 import com.bidstay.bidding.BidDtos.HotelRespond;
 import com.bidstay.hotel.DocType;
 import com.bidstay.hotel.HotelDocumentFiles;
+import com.bidstay.hotel.HourlyStays;
 import com.bidstay.hotel.StayPolicy;
 import com.bidstay.partner.PartnerDtos.*;
 import com.bidstay.user.AccessService;
@@ -33,6 +34,21 @@ public class PartnerController {
     private final AccessService access;
     private final HotelDocumentFiles files;
     private final Environment environment;
+    private final HourlyStays hourly;
+
+    @GetMapping("/hotels/{hotelId}/hourly")
+    public List<HourlyStays.RoomRates> hourly(@CallerId Long userId, @PathVariable Long hotelId) {
+        access.requireStaffManager(userId, hotelId);
+        return hourly.partnerRates(hotelId);
+    }
+
+    @PutMapping("/hotels/{hotelId}/hourly/{roomTypeId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateHourly(@CallerId Long userId, @PathVariable Long hotelId, @PathVariable Long roomTypeId,
+                             @Valid @RequestBody HourlyStays.RatesChange rates) {
+        access.requireStaffManager(userId, hotelId);
+        hourly.update(userId, hotelId, roomTypeId, rates);
+    }
 
     @GetMapping("/hotels")
     public List<MyHotel> myHotels(@CallerId Long userId) {

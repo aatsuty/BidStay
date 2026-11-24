@@ -38,6 +38,8 @@ public class AuditTrail {
         STAFF_REMOVED(Subject.USER), ADMIN_SIGNED_IN(Subject.USER),
         HOTEL_APPROVED(Subject.HOTEL), HOTEL_REJECTED(Subject.HOTEL), HOTEL_SUSPENDED(Subject.HOTEL), HOTEL_REINSTATED(Subject.HOTEL),
         HOTEL_STAY_POLICY_UPDATED(Subject.HOTEL),
+        HOURLY_RATES_UPDATED(Subject.ROOM_TYPE),
+        REVIEW_PUBLISHED(Subject.BOOKING), REVIEW_HIDDEN(Subject.BOOKING),
         DOCUMENT_VERIFIED(Subject.DOCUMENT), DOCUMENT_UNVERIFIED(Subject.DOCUMENT),
         LISTING_PHOTO_APPROVED(Subject.PHOTO), LISTING_PHOTO_REJECTED(Subject.PHOTO), LISTING_PHOTO_PUBLISHED(Subject.PHOTO),
         BID_CANCELLED(Subject.BID), BOOKING_CANCELLED(Subject.BOOKING), REFUND_QUEUED(Subject.BOOKING), REFUND_SUBMITTED(Subject.BOOKING),
@@ -48,7 +50,7 @@ public class AuditTrail {
         Action(Subject subject) { this.subject = subject; }
     }
 
-    private enum Subject { INVITATION, USER, HOTEL, DOCUMENT, PHOTO, BID, BOOKING }
+    private enum Subject { INVITATION, USER, HOTEL, DOCUMENT, PHOTO, BID, BOOKING, ROOM_TYPE }
 
     public record Event(long id, String action, String subjectType, long subjectId, Long hotelId, Instant at,
                         Long actorId, String actorName) {}

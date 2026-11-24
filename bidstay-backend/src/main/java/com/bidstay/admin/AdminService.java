@@ -141,14 +141,60 @@ public class AdminService {
     // ------------------------------------------------------------------ monitoring
 
     @Transactional(readOnly = true)
+    public MarketStats market(String city, String area) {
+        if (city.isBlank() || area.isBlank() || city.length() > 80 || area.length() > 100) {
+            throw ApiException.invalid("Choose a city and neighbourhood");
+        }
+        return jdbc.queryForObject("""
+                with cohort as materialized (
+                    select id, status from hotels where lower(city) = lower(?) and lower(area) = lower(?)
+                ), reached as materialized (
+                    select o.id as offer_id, o.hotel_id, b.id as bid_id, b.created_at
+                    from bid_requests b join bid_offers o on o.bid_request_id = b.id join cohort h on h.id = o.hotel_id
+                    where b.created_at >= now() - interval '30 days' and o.status <> 'UNAVAILABLE'
+                ), ready as materialized (
+                    select r.bid_id, r.hotel_id, min(extract(epoch from a.created_at - r.created_at)) as seconds
+                    from reached r join guest_alerts a on a.bid_id = r.bid_id and a.kind = 'OFFER'
+                        and a.event_key like ('offer-' || r.offer_id || '-%')
+                    group by r.bid_id, r.hotel_id
+                ), first_offers as (
+                    select bid_id, min(seconds) as seconds from ready group by bid_id
+                ), paid as materialized (
+                    select b.bid_request_id, b.status, b.rooms, b.arrival_at, b.departure_at
+                    from bookings b join cohort h on h.id = b.hotel_id
+                    where b.created_at >= now() - interval '30 days' and b.payment_ref is not null
+                )
+                select (select count(*) from cohort where status = 'ACTIVE'),
+                    (select count(distinct bid_id) from reached),
+                    (select count(*) from ready),
+                    (select percentile_cont(0.5) within group (order by seconds) from first_offers),
+                    (select count(distinct bid_request_id) from paid
+                     where bid_request_id in (select bid_id from reached)),
+                    (select coalesce(sum(rooms * extract(epoch from departure_at - arrival_at) / 3600), 0)
+                     from paid where status = 'CONFIRMED'),
+                    (select count(*) from paid where status = 'CONFIRMED' and arrival_at is null)
+                """, (rs, row) -> new MarketStats(rs.getLong(1), rs.getLong(2), rs.getLong(3),
+                rs.getObject(4, Double.class), rs.getLong(5), rs.getBigDecimal(6), rs.getLong(7)),
+                city.strip(), area.strip());
+    }
+
+    public record MarketStats(long liveHotels, long bidsReached, long usefulOffers,
+                              Double medianFirstOfferSeconds, long paidBids,
+                              BigDecimal bookedRoomHours, long bookingsWithoutTimes) {}
+
+    @Transactional(readOnly = true)
     public List<BookingRow> bookings() {
         return jdbc.query("""
-                select b.id, h.name, u.name, b.status, b.check_in, b.check_out, b.rooms, b.total_amount, b.commission_amount, b.created_at
+                select b.id, h.name, u.name, b.status, b.check_in, b.check_out, b.rooms, b.total_amount, b.commission_amount, b.created_at,
+                       case when b.hourly_rate is not null then b.arrival_at end,
+                       case when b.hourly_rate is not null then b.departure_at end
                 from bookings b join hotels h on h.id = b.hotel_id join users u on u.id = b.guest_id
                 order by b.id desc limit 100
                 """, (rs, i) -> new BookingRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4),
                 rs.getDate(5).toLocalDate(), rs.getDate(6).toLocalDate(), rs.getInt(7), rs.getBigDecimal(8), rs.getBigDecimal(9),
-                rs.getTimestamp(10).toInstant()));
+                rs.getTimestamp(10).toInstant(),
+                rs.getTimestamp(11) == null ? null : rs.getTimestamp(11).toInstant(),
+                rs.getTimestamp(12) == null ? null : rs.getTimestamp(12).toInstant()));
     }
 
     @Transactional(readOnly = true)

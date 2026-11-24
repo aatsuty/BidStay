@@ -49,7 +49,7 @@ public final class PartnerDtos {
 
     public record BookingRow(Long bookingId, String status, String roomType, LocalDate checkIn, LocalDate checkOut, int rooms,
                              BigDecimal pricePerNight, BigDecimal total, BigDecimal commission, BigDecimal payout,
-                             String guestName, String guestPhone) {}
+                             String guestName, String guestPhone, Instant arrival, Instant departure, BigDecimal hourlyRate) {}
 
     public record Dashboard(long pendingReplies, long bidsLast30Days, long acceptedLast30Days, long counteredLast30Days,
                             long declinedOrExpiredLast30Days, Long avgReplySeconds, long confirmedBookingsLast30Days,

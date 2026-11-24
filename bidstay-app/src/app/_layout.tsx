@@ -23,6 +23,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="hotels" options={{ title: 'Choose hotels & bid' }} />
+          <Stack.Screen name="hourly" options={{ title: 'Hourly stays' }} />
           <Stack.Screen name="bid/[id]" options={{ title: 'Your bid' }} />
           <Stack.Screen name="booking/[id]" options={{ title: 'Booking' }} />
         </Stack>

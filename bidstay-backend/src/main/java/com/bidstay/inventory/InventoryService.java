@@ -2,11 +2,15 @@ package com.bidstay.inventory;
 
 import com.bidstay.common.ApiException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -21,22 +25,55 @@ import java.util.List;
 public class InventoryService {
 
     private final RoomInventoryRepository repo;
+    private final JdbcTemplate jdbc;
+    public static final ZoneId STAY_ZONE = ZoneId.of("Asia/Kolkata");
+    public static final long TURNOVER_SECONDS = 30 * 60;
 
     /** Cheap, lock-free check used while evaluating bids. Not a guarantee: hold() is the guarantee. */
     @Transactional(readOnly = true)
     public boolean isAvailable(Long roomTypeId, LocalDate checkIn, LocalDate checkOut, int rooms) {
         long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
         List<RoomInventory> rows = repo.findRange(roomTypeId, checkIn, checkOut);
-        return rows.size() == nights && rows.stream().allMatch(r -> r.available() >= rooms);
+        return rows.size() == nights && rows.stream().allMatch(r -> r.available() >= rooms)
+                && Boolean.TRUE.equals(jdbc.queryForObject("select room_has_nightly_capacity(?, ?, ?, ?)",
+                Boolean.class, roomTypeId, checkIn, checkOut, rooms));
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void hold(Long roomTypeId, LocalDate checkIn, LocalDate checkOut, int rooms) {
+    public void hold(Long roomTypeId, LocalDate checkIn, LocalDate checkOut, int rooms, Instant arrival, Instant blockedUntil) {
+        lockPool(roomTypeId);
+        if (usesSharedInventory(roomTypeId)) {
+            requireWindow(roomTypeId, arrival == null ? dayStart(checkIn) : arrival,
+                    blockedUntil == null ? dayStart(checkOut.plusDays(1)) : blockedUntil, rooms);
+        }
         List<RoomInventory> rows = lock(roomTypeId, checkIn, checkOut);
         if (rows.stream().anyMatch(r -> r.available() < rooms)) {
             throw ApiException.conflict("Rooms are no longer available for these dates");
         }
         rows.forEach(r -> r.setHeldRooms(r.getHeldRooms() + rooms));
+    }
+
+    /** Serializes new holds and capacity edits for the same room pool across all replicas. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockPool(Long roomTypeId) {
+        jdbc.query("select id from room_types where id = ? for update", (rs, row) -> rs.getLong(1), roomTypeId)
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("Room type"));
+    }
+
+    public void requireWindow(Long roomTypeId, Instant from, Instant until, int rooms) {
+        if (!Boolean.TRUE.equals(jdbc.queryForObject("select room_has_capacity(?, ?, ?, ?)",
+                Boolean.class, roomTypeId, Timestamp.from(from), Timestamp.from(until), rooms))) {
+            throw ApiException.conflict("Rooms are no longer available for this time");
+        }
+    }
+
+    private boolean usesSharedInventory(Long roomTypeId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select exists (select 1 from hourly_stay_rates where room_type_id = ?)",
+                Boolean.class, roomTypeId));
+    }
+
+    private Instant dayStart(LocalDate date) {
+        return date.atStartOfDay(STAY_ZONE).toInstant();
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -60,23 +97,24 @@ public class InventoryService {
     /** Creates any missing nights in [from, to) with the given room count. Safe to call repeatedly. */
     @Transactional
     public int ensureRange(Long roomTypeId, LocalDate from, LocalDate to, int totalRooms) {
-        var existing = repo.findRange(roomTypeId, from, to).stream().map(RoomInventory::getStayDate).collect(java.util.stream.Collectors.toSet());
-        int added = 0;
-        for (LocalDate d = from; d.isBefore(to); d = d.plusDays(1)) {
-            if (existing.contains(d)) continue;
-            RoomInventory r = new RoomInventory();
-            r.setRoomTypeId(roomTypeId);
-            r.setStayDate(d);
-            r.setTotalRooms(totalRooms);
-            repo.save(r);
-            added++;
-        }
-        return added;
+        return jdbc.update("""
+                insert into room_inventory (room_type_id, stay_date, total_rooms)
+                select ?, day::date, ? from generate_series(?::date::timestamp, (?::date - 1)::timestamp, interval '1 day') days(day)
+                on conflict (room_type_id, stay_date) do nothing
+                """, roomTypeId, totalRooms, from, to);
     }
 
     /** Owner changes how many rooms they sell per night. Never below what is already held or sold. */
     @Transactional
     public void setTotal(Long roomTypeId, LocalDate from, LocalDate to, int totalRooms) {
+        lockPool(roomTypeId);
+        if (usesSharedInventory(roomTypeId)) {
+            boolean occupied = Boolean.TRUE.equals(jdbc.queryForObject("""
+                    select exists (select 1 from generate_series(?::date::timestamp, (?::date - 1)::timestamp, interval '1 day') days(day)
+                    where room_peak_occupancy(?, day at time zone 'Asia/Kolkata', (day + interval '1 day') at time zone 'Asia/Kolkata') > ?)
+                    """, Boolean.class, from, to, roomTypeId, totalRooms));
+            if (occupied) throw ApiException.conflict("The new capacity is below the rooms held or booked for these dates");
+        }
         for (RoomInventory r : repo.lockRange(roomTypeId, from, to)) {
             if (totalRooms < r.getHeldRooms() + r.getSoldRooms()) {
                 throw ApiException.invalid(r.getStayDate() + " already has " + (r.getHeldRooms() + r.getSoldRooms())

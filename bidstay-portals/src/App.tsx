@@ -24,6 +24,9 @@ import ListingMediaReview from './pages/admin/ListingMediaReview';
 import GuestShell from './pages/guest/GuestShell';
 import Search from './pages/guest/Search';
 import Alerts from './pages/guest/Alerts';
+import HourlySearch from './pages/guest/HourlySearch';
+import Reviews from './pages/admin/Reviews';
+import Market from './pages/admin/Market';
 import { Checkout, Offers, Trips } from './pages/guest/TripFlow';
 
 export function useMe() {
@@ -49,6 +52,7 @@ export default function App() {
     <Routes>
       <Route element={<GuestShell />}>
         <Route index element={<Search />} />
+        <Route path="/hourly" element={<HourlySearch />} />
         <Route path="/offers/:bidId" element={<Offers />} />
         <Route path="/checkout/:bookingId" element={<Checkout />} />
         <Route path="/trips" element={<Trips />} />
@@ -73,6 +77,8 @@ export default function App() {
         <Route path="photos" element={<ListingMediaReview />} />
         <Route path="bookings" element={<AdminBookings />} />
         <Route path="bids" element={<AdminBids />} />
+        <Route path="reviews" element={<Reviews />} />
+        <Route path="market" element={<Market />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

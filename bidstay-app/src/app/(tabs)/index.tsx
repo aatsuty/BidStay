@@ -68,6 +68,7 @@ export default function SearchScreen() {
       </Card>
 
       <Button title="Find hotels" onPress={search} disabled={!city.trim()} />
+      <Button title="Find hourly stays" variant="ghost" onPress={() => router.push('/hourly')} />
 
       <Card style={{ marginTop: 16, backgroundColor: colors.primarySoft, borderColor: colors.primarySoft }}>
         <Text style={{ fontWeight: '700', color: colors.primaryDark, marginBottom: 4 }}>How it works</Text>

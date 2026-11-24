@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookingBadge, Button, Card, ErrorText, Loading } from '@/components/ui';
 import { errorMessage, useApi } from '@/lib/api';
-import { countdown, formatDate, nightsBetween, useNow } from '@/lib/format';
+import { countdown, formatDate, indiaDateTime, nightsBetween, useNow } from '@/lib/format';
 import { colors } from '@/lib/theme';
 import { useSession } from '@/lib/session';
 import type { BookingView } from '@/lib/types';
@@ -54,6 +54,7 @@ export default function BookingScreen() {
   const updateBooking = (data: BookingView) => {
     qc.setQueryData(bookingKey, data);
     void qc.invalidateQueries({ queryKey: ['bids'] });
+    void qc.invalidateQueries({ queryKey: ['direct-trips', cacheKey] });
   };
   const pay = useMutation({
     mutationFn: () => api.post<BookingView>(`/api/v1/dev/bookings/${id}/confirm-payment`, { paymentRef: `dev_${Date.now()}` }),
@@ -103,10 +104,13 @@ export default function BookingScreen() {
 
         <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 12 }} />
         {b.roomName && <Row k="Room type" v={b.roomName} />}
-        <Row k="Check-in" v={formatDate(b.checkIn) + (b.stayPolicy ? ` from ${b.stayPolicy.checkInFrom} IST` : '')} />
-        <Row k="Check-out" v={formatDate(b.checkOut) + (b.stayPolicy ? ` by ${b.stayPolicy.checkOutBy} IST` : '')} />
-        <Row k="Stay" v={`${nights} night${nights > 1 ? 's' : ''} · ${b.rooms} room${b.rooms > 1 ? 's' : ''}`} />
-        <Row k="Rate per room per night" v={bookingAmount.format(b.pricePerNight)} />
+        <Row k="Check-in" v={b.shortStay ? indiaDateTime(b.shortStay.arrival)
+          : formatDate(b.checkIn) + (b.stayPolicy ? ` from ${b.stayPolicy.checkInFrom} IST` : '')} />
+        <Row k="Check-out" v={b.shortStay ? indiaDateTime(b.shortStay.departure)
+          : formatDate(b.checkOut) + (b.stayPolicy ? ` by ${b.stayPolicy.checkOutBy} IST` : '')} />
+        <Row k="Stay" v={`${b.shortStay ? `${b.shortStay.hours} hours` : `${nights} night${nights > 1 ? 's' : ''}`} · ${b.rooms} room${b.rooms > 1 ? 's' : ''}`} />
+        <Row k={b.shortStay ? 'Rate per room for this slot' : 'Rate per room per night'}
+          v={bookingAmount.format(b.shortStay?.ratePerRoom ?? b.pricePerNight ?? 0)} />
         <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 12 }} />
         <Row k={b.receipt ? 'Original payment' : 'Total'} v={bookingAmount.format(b.totalAmount)} bold />
         {b.stayPolicy?.guestInstructions && <Text style={{ color: colors.text, marginTop: 10 }}>{b.stayPolicy.guestInstructions}</Text>}
