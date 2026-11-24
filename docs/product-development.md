@@ -2,7 +2,7 @@
 
 ## Build trust into the booking flow
 
-The guest should be able to see the actual property and room, understand the stay total and cancellation terms, then find the booking, receipt, refund or support history in one place. The partner should see the same dates, price and booking state. Define the finance and customer-service workflows before opening public checkout.
+Checkout shows the room type, nightly rate, room and night counts, exact total, cancellation deadline and any arrival policy the manager published. The booking keeps the terms shown when the guest chose the offer. After payment, guests can reopen their receipt and refund status from **My trips**. Verify the complete flow with a real property and agree on finance and customer-support workflows before opening public checkout.
 
 Listing photos have their own review status. Hotel and room images are uploaded in the partner portal under **Listing photos** and moderated in **Admin → Listing photo review**. Approval publishes the images for an active hotel. If an existing upload is an approved JPEG or PNG under **Profile & documents**, an admin can choose **Publish to guest gallery** for that version. This creates a separate listing image. The original evidence remains in private document storage. Production storage needs access to both `hotel-documents/` and `listing-media/` prefixes.
 
@@ -24,7 +24,7 @@ Start with a small opt-in pilot, fixed durations such as 3 or 6 hours, exact arr
 
 Use a shared allocation model for hourly and overnight stays. Selling both formats from independent counters can double-book the same room. For hotels that track individually assigned rooms, PostgreSQL can reject overlaps per room using half-open timestamp ranges on active allocations. For hotels that manage pooled room types, publish capacity in 30-minute blocks for the hourly pilot horizon. Every booking or hold locks the affected resource blocks in order and consumes capacity in one transaction. Overnight bookings in those pools must reserve the blocks they overlap, including the turnover period. Avoid materializing hourly slots across the entire catalog. Start with opted-in room pools and a short rolling horizon.
 
-Move existing confirmed stays and unexpired holds into the shared allocation model before enabling hourly sales for a room pool. Exercise these cases with actual concurrent transactions before launch:
+Move existing confirmed stays and unexpired holds into the shared allocation model before enabling hourly sales for a room pool. Use the booking's saved check-in and check-out times to translate existing overnight stays. Resolve missing times with the pilot property before enabling its room pool. Exercise these cases with actual concurrent transactions before launch:
 
 - An hourly checkout and an overnight checkout try to hold the last room.
 - The guest arrives early or extends the stay into a later reservation.

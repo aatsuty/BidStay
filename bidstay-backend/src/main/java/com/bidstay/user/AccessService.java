@@ -38,7 +38,7 @@ public class AccessService {
         User actor = user(userId);
         if (actor.getRole() == Role.ADMIN) return actor;
         if (actor.getRole() == Role.HOTEL_STAFF && canManageMembership(userId, hotelId)) return actor;
-        throw new ApiException(HttpStatus.FORBIDDEN, "Only the hotel manager can change staff access");
+        throw new ApiException(HttpStatus.FORBIDDEN, "Only property managers can do that");
     }
 
     private boolean canManageMembership(Long userId, Long hotelId) {

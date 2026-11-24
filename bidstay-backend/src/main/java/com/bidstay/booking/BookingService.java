@@ -8,9 +8,8 @@ import com.bidstay.bidding.BidRequestRepository;
 import com.bidstay.bidding.BidStatus;
 import com.bidstay.common.ApiException;
 import com.bidstay.common.BidStayProperties;
-import com.bidstay.hotel.Hotel;
 import com.bidstay.common.Money;
-import com.bidstay.hotel.HotelRepository;
+import com.bidstay.hotel.StayPolicy;
 import com.bidstay.partner.PartnerChatService;
 import com.bidstay.partner.PartnerMessage;
 import com.bidstay.whatsapp.WhatsAppNotifications;
@@ -29,7 +28,9 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Service
@@ -38,7 +39,6 @@ public class BookingService {
 
     private final BookingRepository bookings;
     private final BidRequestRepository bids;
-    private final HotelRepository hotels;
     private final InventoryService inventory;
     private final PartnerChatService chat;
     private final UserRepository users;
@@ -80,6 +80,13 @@ public class BookingService {
         b.setHoldExpiresAt(now.plus(props.paymentHold()));
         b.setFreeCancelUntil(cancellationDeadline(bid.getCheckIn()));
         b.setCreatedAt(now);
+        var details = stayDetails(offer.getRoomTypeId());
+        b.setHotelNameAtBooking(details.hotelName());
+        b.setHotelAddressAtBooking(details.hotelAddress());
+        b.setRoomNameAtBooking(details.roomName());
+        b.setCheckInFrom(details.policy().checkInFrom());
+        b.setCheckOutBy(details.policy().checkOutBy());
+        b.setGuestInstructions(details.policy().guestInstructions());
         return bookings.save(b);
     }
 
@@ -176,20 +183,54 @@ public class BookingService {
     }
 
     public BookingView toView(Booking b) {
-        String name = null, address = null;
-        if (b.getStatus() == BookingStatus.CONFIRMED) {
-            Hotel h = hotels.findById(b.getHotelId()).orElseThrow();
-            name = h.getName();
-            address = h.getAddress();
+        boolean paid = b.getPaymentRef() != null;
+        boolean revealHotel = paid || b.getStatus() == BookingStatus.CONFIRMED;
+        String name = b.getHotelNameAtBooking();
+        String address = b.getHotelAddressAtBooking();
+        String roomName = b.getRoomNameAtBooking();
+        if (roomName == null) {
+            var legacy = stayDetails(b.getRoomTypeId());
+            name = legacy.hotelName();
+            address = legacy.hotelAddress();
+            roomName = legacy.roomName();
         }
+        StayPolicy policy = b.getCheckInFrom() == null ? null
+                : new StayPolicy(b.getCheckInFrom(), b.getCheckOutBy(), b.getGuestInstructions());
+
+        BookingView.PaymentReceipt receipt = null;
         String refundStatus = null;
-        if (b.getStatus() == BookingStatus.CANCELLED || b.getStatus() == BookingStatus.EXPIRED) {
+        if (paid) {
+            var capture = jdbc.query("""
+                    select captured_at, refund_id, status from payment_captures
+                    where provider_payment_id = ? and booking_id = ?
+                    """, (rs, row) -> new CaptureDetails(rs.getTimestamp(1).toInstant(), rs.getString(2), rs.getString(3)),
+                    b.getPaymentRef(), b.getId()).stream().findFirst();
+            receipt = capture.map(payment -> new BookingView.PaymentReceipt(
+                    b.getPaymentRef(), payment.recordedAt(), payment.refundReference(), false))
+                    .orElseGet(() -> new BookingView.PaymentReceipt(b.getPaymentRef(), null, null, true));
+            refundStatus = capture.map(CaptureDetails::status).filter(status -> status.startsWith("REFUND_")).orElse(null);
+        } else if (b.getStatus() == BookingStatus.CANCELLED || b.getStatus() == BookingStatus.EXPIRED) {
             refundStatus = jdbc.query("""
                     select status from payment_captures where booking_id = ? and status like 'REFUND_%'
                     order by captured_at desc limit 1
                     """, (rs, row) -> rs.getString(1), b.getId()).stream().findFirst().orElse(null);
         }
         return new BookingView(b.getId(), b.getStatus(), b.getCheckIn(), b.getCheckOut(), b.getRooms(),
-                b.getPricePerNight(), b.getTotalAmount(), b.getHoldExpiresAt(), name, address, b.getFreeCancelUntil(), refundStatus);
+                b.getPricePerNight(), b.getTotalAmount(), b.getHoldExpiresAt(),
+                revealHotel ? name : null, revealHotel ? address : null, b.getFreeCancelUntil(), refundStatus,
+                ChronoUnit.DAYS.between(b.getCheckIn(), b.getCheckOut()), roomName, policy, receipt);
     }
+
+    private StayDetails stayDetails(Long roomTypeId) {
+        return jdbc.query("""
+                select h.name, h.address, rt.name, p.check_in_from, p.check_out_by, p.guest_instructions
+                from room_types rt join hotels h on h.id = rt.hotel_id
+                left join hotel_stay_policies p on p.hotel_id = h.id where rt.id = ?
+                """, (rs, row) -> new StayDetails(rs.getString(1), rs.getString(2), rs.getString(3),
+                new StayPolicy(rs.getObject(4, LocalTime.class), rs.getObject(5, LocalTime.class), rs.getString(6))),
+                roomTypeId).stream().findFirst().orElseThrow(() -> ApiException.notFound("Room type"));
+    }
+
+    private record StayDetails(String hotelName, String hotelAddress, String roomName, StayPolicy policy) {}
+    private record CaptureDetails(Instant recordedAt, String refundReference, String status) {}
 }

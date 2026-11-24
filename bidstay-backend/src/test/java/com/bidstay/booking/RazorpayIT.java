@@ -26,12 +26,15 @@ import java.util.HexFormat;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -51,7 +54,25 @@ class RazorpayIT {
 
     @Test
     void signedCaptureConfirmsOnceAndCancellationQueuesRefund() throws Exception {
+        String policy = "/api/v1/partner/hotels/1/stay-policy";
+        String original = """
+                {"checkInFrom":"14:00","checkOutBy":"11:00","guestInstructions":"Bring a photo ID."}
+                """;
+        mvc.perform(put(policy).header("X-User-Id", 5).contentType(MediaType.APPLICATION_JSON).content(original))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(policy).header("X-User-Id", 3).contentType(MediaType.APPLICATION_JSON).content(original))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.checkInFrom").value("14:00"));
         long id = checkout(16, "plink_pilot");
+        mvc.perform(put(policy).header("X-User-Id", 3).contentType(MediaType.APPLICATION_JSON)
+                        .content(original.replace("14:00", "15:00").replace("Bring a photo ID.", "Use the lobby entrance.")))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/bookings/{id}", id).header("X-User-Id", 1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalAmount").value(3000))
+                .andExpect(jsonPath("$.pricePerNight").value(1500))
+                .andExpect(jsonPath("$.nights").value(2)).andExpect(jsonPath("$.roomName").isString())
+                .andExpect(jsonPath("$.stayPolicy.checkInFrom").value("14:00"))
+                .andExpect(jsonPath("$.stayPolicy.guestInstructions").value("Bring a photo ID."))
+                .andExpect(jsonPath("$.hotelAddress").doesNotExist()).andExpect(jsonPath("$.receipt").doesNotExist());
         String event = event(id, "plink_pilot", "pay_pilot", 300_000);
 
         mvc.perform(post("/api/v1/webhooks/razorpay").contentType(MediaType.APPLICATION_JSON).content(event))
@@ -62,6 +83,14 @@ class RazorpayIT {
         submit(event);
         assertEquals(BookingStatus.CONFIRMED, bookings.get(1L, id).status());
         assertEquals(1, jdbc.queryForObject("select count(*) from payment_captures where booking_id = ?", Integer.class, id));
+        mvc.perform(get("/api/v1/bookings/{id}", id).header("X-User-Id", 2))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/bookings/{id}", id).header("X-User-Id", 1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.receipt.reference").value("pay_pilot"))
+                .andExpect(jsonPath("$.receipt.demo").value(false))
+                .andExpect(jsonPath("$.receipt.recordedAt").isString())
+                .andExpect(jsonPath("$.hotelAddress").isString())
+                .andExpect(jsonPath("$.stayPolicy.checkInFrom").value("14:00"));
 
         mvc.perform(post("/api/v1/bookings/{id}/cancel", id).header("X-User-Id", 2))
                 .andExpect(status().isNotFound());
@@ -75,7 +104,11 @@ class RazorpayIT {
                 """;
         submit(refund);
         submit(refund);
-        assertEquals("REFUND_PROCESSED", bookings.get(1L, id).refundStatus());
+        mvc.perform(get("/api/v1/bookings/{id}", id).header("X-User-Id", 1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.refundStatus").value("REFUND_PROCESSED"))
+                .andExpect(jsonPath("$.receipt.reference").value("pay_pilot"))
+                .andExpect(jsonPath("$.receipt.refundReference").value("rfnd_pilot"));
         assertEquals(1, jdbc.queryForObject("""
                 select count(*) from audit_events where action = 'REFUND_PROCESSED' and subject_id = ?
                 """, Integer.class, id));
@@ -88,7 +121,7 @@ class RazorpayIT {
         submit(event(id, "plink_late", "pay_late", 300_000));
         assertEquals("REFUND_PENDING", jdbc.queryForObject(
                 "select status from payment_captures where provider_payment_id = 'pay_late'", String.class));
-        assertEquals(null, jdbc.queryForObject("select payment_ref from bookings where id = ?", String.class, id));
+        assertNull(bookings.get(1L, id).receipt());
     }
 
     private long checkout(int offset, String link) throws Exception {

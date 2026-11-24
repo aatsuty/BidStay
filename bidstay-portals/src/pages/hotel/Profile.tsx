@@ -6,6 +6,7 @@ import type { DocType, DocumentView } from '../../lib/types';
 import { DOC_LABEL, ErrorBox, HotelStatusBadge, Loading, PageHead } from '../../components/ui';
 import { useHotel } from './HotelContext';
 import StaffAccess from './StaffAccess';
+import StayPolicyForm from './StayPolicyForm';
 
 export default function Profile() {
   const { hotel } = useHotel();
@@ -49,7 +50,8 @@ export default function Profile() {
           </div>
         ))}
       </div>
-      <StaffAccess key={hotel.id} hotelId={hotel.id} />
+      <StayPolicyForm key={`policy-${hotel.id}`} hotelId={hotel.id} />
+      <StaffAccess key={`staff-${hotel.id}`} hotelId={hotel.id} />
     </>
   );
 }

@@ -7,7 +7,7 @@ Use the existing Spring Boot API and PostgreSQL database with the React web port
 1. Start PostgreSQL and run the backend with `mvn spring-boot:run -Dspring-boot.run.profiles=dev` in `bidstay-backend`. Flyway upgrades an existing seeded development database in place.
 2. Run `npm ci` followed by `npm run dev` in `bidstay-portals`. Open the printed web URL. **Find a stay** is the guest experience at `/`. **Partner portal** opens staff or admin sign-in with local demo accounts available in development.
 3. In a separate terminal, run `npm ci` and `npx expo start` in `bidstay-app` for Android and iOS. The native app uses the same availability and checkout APIs.
-4. To test bidding, choose an upcoming Delhi stay, select Hotel Sunrise Paharganj, and send a ₹1,100 bid as the demo guest. Use the demo owner account to counter at ₹1,500. Return to the guest offer and complete demo checkout. Open **My trips** to verify the booking.
+4. To test bidding, choose an upcoming Delhi stay, select Hotel Sunrise Paharganj, and send a ₹1,100 bid as the demo guest. Use the demo owner account to counter at ₹1,500. In **Profile & documents → Stay policy**, set check-in, check-out and arrival requirements. Return to the guest offer, review the terms and complete demo checkout. Open **My trips** to verify the booking and demo receipt.
 
 The web deployment can serve its API under the same HTTPS origin. Set `VITE_API_URL` or `EXPO_PUBLIC_API_URL` when clients need an explicit API origin. The development server uses OpenStreetMap tiles. Configure a production tile service with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` before routing pilot map traffic. The search shows approximate hotel locations. The hero photograph illustrates the stay concept.
 
@@ -26,6 +26,14 @@ Set credentials in the backend environment or secret manager.
 | WhatsApp | Set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, and the approved template names listed below. Subscribe the app to messages and use `/api/v1/webhooks/whatsapp` for verification and signed events. Staff opt in from the inbox after phone verification. Guests opt in from **My trips**. |
 | AI reply suggestions | Set `OPENAI_API_KEY` and optionally `WHATSAPP_AI_MODEL`. The assistant receives the text of a hotel reply and proposes a command. A staff member must send the explicit command before the bid changes. |
 
+## Verify the first real stay
+
+1. Confirm the hotel's room inventory, approved hotel and room photos, and check-in requirements with its manager. Enter the actual terms under **Profile & documents → Stay policy**. Existing checkouts keep the terms captured when the guest chose the offer.
+2. In Razorpay Test Mode on a phone, choose the offer and compare the rate, room and night counts, and total with the hosted payment page. Complete payment and reopen **My trips**. Match the receipt reference and amount with Razorpay.
+3. Cancel the booking within its displayed free-cancellation window. Check that availability returns, the guest keeps the original payment receipt, and the refund reference and final status agree with Razorpay.
+
+The guest receipt records the payment and any recorded refund reference. Agree on tax invoice and settlement responsibilities with the hotel before accepting live money.
+
 Create approved WhatsApp templates with the configured `WHATSAPP_TEMPLATE_LANGUAGE`. The placeholders must match this order.
 
 | Template variable | Body placeholders |
@@ -42,7 +50,7 @@ Use the `dev` profile only on local test systems. The public instance needs HTTP
 
 - **Sign-in limits.** The API shares PostgreSQL counters across replicas. Per client, each 10-minute window defaults to 20 OTP sends, 60 OTP verification requests and 20 admin sign-in requests. Set `BIDSTAY_OTP_SEND_LIMIT`, `BIDSTAY_OTP_VERIFY_LIMIT` or `BIDSTAY_ADMIN_SIGN_IN_LIMIT` to adjust. The existing phone cooldown and admin account attempt limits also apply. The API uses the connection address and groups IPv6 under a /64. For a trusted ingress, restrict direct access to the app, strip incoming forwarding headers at the edge and configure Tomcat's trusted proxy handling before enabling `BIDSTAY_FORWARD_HEADERS_STRATEGY=native`. Keep gateway and SMS provider abuse limits for a public pilot.
 - **Hotel membership.** Regular members can work on their assigned property. Managers manage staff invitations and membership. Admins can assign managers and recover a hotel whose managers have all left. Revocation removes the property's membership, disables WhatsApp consent for it, and revokes all sessions if the person has no remaining hotel memberships. Review legacy memberships after the upgrade. Existing invited members are classified as staff, while associations that were provisioned directly keep manager access.
-- **Audit events.** The admin-only **Audit log** shows new staff invitations and removals, hotel and document decisions, photo publication, admin sign-ins, booking cancellations and refund status changes. It stores actor and record identifiers without OTP codes, passwords, invitation links or payment credentials. Audit history starts with this migration. Use restricted database roles and external log retention for security monitoring at launch.
+- **Audit events.** The admin-only **Audit log** shows new staff invitations and removals, hotel and document decisions, stay policy edits, photo publication, admin sign-ins, booking cancellations and refund status changes. It stores actor and record identifiers without OTP codes, passwords, invitation links or payment credentials. Use restricted database roles and external log retention for security monitoring at launch.
 
 ## Data and scaling
 

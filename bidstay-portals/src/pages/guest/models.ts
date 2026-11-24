@@ -1,3 +1,5 @@
+import type { StayPolicy } from '../../lib/types';
+
 export interface HotelResult {
   id: number;
   name: string;
@@ -52,6 +54,10 @@ export interface Booking {
   hotelAddress?: string;
   freeCancelUntil?: string;
   refundStatus?: string;
+  nights: number;
+  roomName?: string;
+  stayPolicy?: StayPolicy;
+  receipt?: { reference: string; recordedAt?: string; refundReference?: string; demo: boolean };
 }
 
 export const rupees = new Intl.NumberFormat('en-IN', {

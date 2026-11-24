@@ -64,6 +64,12 @@ export interface BookingView {
   payBy: string;
   hotelName?: string;
   hotelAddress?: string;
+  nights?: number;
+  roomName?: string;
+  stayPolicy?: { checkInFrom: string; checkOutBy: string; guestInstructions?: string };
+  freeCancelUntil?: string;
+  refundStatus?: string;
+  receipt?: { reference: string; recordedAt?: string; refundReference?: string; demo: boolean };
 }
 
 export interface HotelOfferView {

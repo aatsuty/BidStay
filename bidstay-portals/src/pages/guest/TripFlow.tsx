@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, CreditCard, Hotel, MapPin } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, CreditCard, Hotel, MapPin, Printer } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { countdown, fmtDate, useNow } from '../../lib/format';
@@ -142,9 +142,11 @@ export function Checkout() {
   const left = pending ? countdown(booking.payBy, now) : null;
   const confirmed = booking?.status === 'CONFIRMED';
   const freeUntil = booking?.freeCancelUntil;
-  const canCancel = pending || (confirmed && !!freeUntil && Date.parse(freeUntil) > now);
+  const freeCancellation = !!freeUntil && Date.parse(freeUntil) > now;
+  const canCancel = pending || (confirmed && freeCancellation);
+  const title = confirmed ? 'Booking confirmed' : pending ? 'Checkout' : booking ? statusLabel(booking.status) : 'Checkout';
 
-  return <TripPage title={confirmed ? 'Booking confirmed' : 'Checkout'} sub={booking ? `Booking #${booking.bookingId}` : undefined}>
+  return <TripPage title={title} sub={booking ? `Booking #${booking.bookingId}` : undefined}>
     {!signedIn ? <SignInPrompt /> : <>
       <ErrorBox error={result.error ?? pay.error ?? paymentLink.error ?? cancel.error} />
       {result.isPending && <p role="status">Loading booking…</p>}
@@ -152,20 +154,46 @@ export function Checkout() {
         <span className={'guest-hotel-icon' + (confirmed ? ' confirmed' : '')}>{confirmed ? <Check size={25} /> : <CreditCard size={24} />}</span>
         <h2>{booking.hotelName ?? 'Stay summary'}</h2>
         {booking.hotelAddress && <p><MapPin size={15} /> {booking.hotelAddress}</p>}
-        <p><CalendarDays size={15} /> {fmtDate(booking.checkIn)} to {fmtDate(booking.checkOut)} · {booking.rooms} {booking.rooms === 1 ? 'room' : 'rooms'}</p>
-        <div className="guest-checkout-total"><span>Total for your stay</span><strong>{rupees.format(booking.totalAmount)}</strong></div>
-        {!confirmed && <p><Clock3 size={15} /> {pending ? left ? `Rooms held for ${left}` : 'Room hold ended' : statusLabel(booking.status)}</p>}
+        {booking.roomName && <p>{booking.roomName}</p>}
+        <div className="guest-stay-dates">
+          <div><span>Check-in</span><strong><CalendarDays size={15} /> {fmtDate(booking.checkIn)}</strong>
+            {booking.stayPolicy?.checkInFrom && <small>From {booking.stayPolicy.checkInFrom} IST</small>}</div>
+          <div><span>Check-out</span><strong><CalendarDays size={15} /> {fmtDate(booking.checkOut)}</strong>
+            {booking.stayPolicy?.checkOutBy && <small>By {booking.stayPolicy.checkOutBy} IST</small>}</div>
+        </div>
+        <div className="guest-price-breakdown">
+          <span>{rupees.format(booking.pricePerNight)} per room per night</span>
+          <span>{booking.rooms} {booking.rooms === 1 ? 'room' : 'rooms'} × {booking.nights} {booking.nights === 1 ? 'night' : 'nights'}</span>
+        </div>
+        <div className="guest-checkout-total"><span>{booking.receipt ? 'Original payment' : 'Total for your stay'}</span><strong>{rupees.format(booking.totalAmount)}</strong></div>
+        {(pending || confirmed || booking.stayPolicy?.guestInstructions) && <div className="guest-stay-terms">
+          <h3>Stay terms</h3>
+          {booking.stayPolicy?.guestInstructions && <p className="guest-stay-instructions">{booking.stayPolicy.guestInstructions}</p>}
+          {(pending || confirmed) && <p>{freeCancellation ? `Free cancellation until ${indiaDateTime(freeUntil)}.`
+            : freeUntil ? `Free cancellation ended on ${indiaDateTime(freeUntil)}.` : 'Free cancellation is unavailable after payment.'}</p>}
+        </div>}
+        {pending && <p><Clock3 size={15} /> {left ? `Rooms held for ${left}` : 'Room hold ended'}</p>}
         {left && options.data?.razorpay && (paymentLink.data
           ? <a href={paymentLink.data.url} target="_blank" rel="noreferrer" className="guest-cta">Open secure checkout <ArrowRight size={16} /></a>
           : <button className="guest-cta" disabled={paymentLink.isPending} onClick={() => paymentLink.mutate()}>{paymentLink.isPending ? 'Preparing checkout…' : 'Pay with Razorpay'}</button>)}
         {left && !options.data?.razorpay && import.meta.env.DEV && <button className="guest-cta" disabled={pay.isPending} onClick={() => pay.mutate()}>{pay.isPending ? 'Confirming…' : 'Complete demo payment'}</button>}
         {left && !import.meta.env.DEV && options.data && !options.data.razorpay && <p>Online payment is currently unavailable.</p>}
-        {freeUntil && Date.parse(freeUntil) > now && (confirmed || pending) && <p>Free cancellation until {indiaDateTime(freeUntil)}.</p>}
+        {booking.receipt && <section className="guest-payment-receipt" aria-label="Payment receipt">
+          <h3>{booking.receipt.demo ? 'Demo payment receipt' : 'Payment receipt'}</h3>
+          <dl>
+            <div><dt>Payment reference</dt><dd>{booking.receipt.reference}</dd></div>
+            {booking.receipt.recordedAt && <div><dt>Payment recorded</dt><dd>{indiaDateTime(booking.receipt.recordedAt)}</dd></div>}
+            {booking.receipt.refundReference && <div><dt>Refund reference</dt><dd>{booking.receipt.refundReference}</dd></div>}
+          </dl>
+        </section>}
         {booking.refundStatus && <p role="status">{refundLabel(booking.refundStatus)}</p>}
-        {canCancel && <button className="guest-quiet" style={{ margin: '9px 10px 0 0' }} disabled={cancel.isPending} onClick={() => {
-          if (window.confirm('Cancel this booking and release the rooms?')) cancel.mutate();
-        }}>{pending ? 'Cancel checkout' : 'Cancel booking'}</button>}
-        {confirmed && <Link to="/trips" className="guest-cta">View my trips <ArrowRight size={17} /></Link>}
+        <div className="guest-checkout-actions">
+          {canCancel && <button className="guest-quiet" disabled={cancel.isPending} onClick={() => {
+            if (window.confirm('Cancel this booking and release the rooms?')) cancel.mutate();
+          }}>{pending ? 'Cancel checkout' : 'Cancel booking'}</button>}
+          {booking.receipt && <button className="guest-quiet" onClick={() => window.print()}><Printer size={16} /> Print receipt</button>}
+          {!pending && <Link to="/trips" className="guest-quiet">View my trips <ArrowRight size={17} /></Link>}
+        </div>
       </section>}
     </>}
   </TripPage>;

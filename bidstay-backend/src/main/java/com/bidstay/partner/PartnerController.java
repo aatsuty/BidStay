@@ -5,6 +5,7 @@ import com.bidstay.bidding.BidDtos.HotelOfferView;
 import com.bidstay.bidding.BidDtos.HotelRespond;
 import com.bidstay.hotel.DocType;
 import com.bidstay.hotel.HotelDocumentFiles;
+import com.bidstay.hotel.StayPolicy;
 import com.bidstay.partner.PartnerDtos.*;
 import com.bidstay.user.AccessService;
 import jakarta.validation.Valid;
@@ -110,6 +111,19 @@ public class PartnerController {
     public List<BookingRow> bookings(@CallerId Long userId, @PathVariable Long hotelId) {
         access.requireHotelAccess(userId, hotelId);
         return service.bookings(hotelId);
+    }
+
+    @GetMapping("/hotels/{hotelId}/stay-policy")
+    public StayPolicy stayPolicy(@CallerId Long userId, @PathVariable Long hotelId) {
+        access.requireStaffManager(userId, hotelId);
+        return service.stayPolicy(hotelId);
+    }
+
+    @PutMapping("/hotels/{hotelId}/stay-policy")
+    public StayPolicy updateStayPolicy(@CallerId Long userId, @PathVariable Long hotelId,
+                                       @Valid @RequestBody StayPolicy policy) {
+        access.requireStaffManager(userId, hotelId);
+        return service.updateStayPolicy(userId, hotelId, policy);
     }
 
     @GetMapping("/hotels/{hotelId}/documents")

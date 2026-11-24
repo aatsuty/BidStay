@@ -1,5 +1,6 @@
 package com.bidstay.partner;
 
+import com.bidstay.audit.AuditTrail;
 import com.bidstay.bidding.BidDtos.HotelOfferView;
 import com.bidstay.bidding.BidDtos.HotelRespond;
 import com.bidstay.whatsapp.WhatsAppNotifications;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,6 +40,7 @@ public class PartnerService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final WhatsAppNotifications whatsapp;
+    private final AuditTrail audit;
 
     // ------------------------------------------------------------------ registration & documents
 
@@ -110,6 +113,35 @@ public class PartnerService {
         }
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "We received your " + type.name().replace('_', ' ').toLowerCase() + ". Our team will verify it shortly.", null);
         return documents(hotelId);
+    }
+
+    @Transactional(readOnly = true)
+    public StayPolicy stayPolicy(Long hotelId) {
+        return jdbc.query("""
+                select p.check_in_from, p.check_out_by, p.guest_instructions
+                from hotels h left join hotel_stay_policies p on p.hotel_id = h.id
+                where h.id = ?
+                """, (rs, row) -> new StayPolicy(rs.getObject(1, LocalTime.class),
+                rs.getObject(2, LocalTime.class), rs.getString(3)), hotelId)
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("Hotel"));
+    }
+
+    @Transactional
+    public StayPolicy updateStayPolicy(Long actorId, Long hotelId, StayPolicy policy) {
+        if (!hotels.existsById(hotelId)) throw ApiException.notFound("Hotel");
+        String instructions = policy.guestInstructions() == null ? null : policy.guestInstructions().strip();
+        StayPolicy updated = new StayPolicy(policy.checkInFrom(), policy.checkOutBy(),
+                instructions == null || instructions.isEmpty() ? null : instructions);
+        int changed = jdbc.update("""
+                insert into hotel_stay_policies (hotel_id, check_in_from, check_out_by, guest_instructions)
+                values (?, ?, ?, ?)
+                on conflict (hotel_id) do update set check_in_from = excluded.check_in_from,
+                    check_out_by = excluded.check_out_by, guest_instructions = excluded.guest_instructions
+                where (hotel_stay_policies.check_in_from, hotel_stay_policies.check_out_by, hotel_stay_policies.guest_instructions)
+                    is distinct from (excluded.check_in_from, excluded.check_out_by, excluded.guest_instructions)
+                """, hotelId, updated.checkInFrom(), updated.checkOutBy(), updated.guestInstructions());
+        if (changed != 0) audit.record(actorId, AuditTrail.Action.HOTEL_STAY_POLICY_UPDATED, hotelId, hotelId);
+        return updated;
     }
 
     // ------------------------------------------------------------------ rates & rules

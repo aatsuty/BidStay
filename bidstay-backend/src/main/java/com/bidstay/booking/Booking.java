@@ -8,6 +8,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "bookings")
@@ -34,6 +35,12 @@ public class Booking {
     private Instant cancelledAt;
     private String paymentRef;
     private Instant createdAt;
+    private String hotelNameAtBooking;
+    private String hotelAddressAtBooking;
+    private String roomNameAtBooking;
+    private LocalTime checkInFrom;
+    private LocalTime checkOutBy;
+    private String guestInstructions;
     @Version
     private Long version;
 }

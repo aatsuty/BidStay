@@ -31,6 +31,7 @@ export interface Dashboard {
   payoutLast30Days: number; commissionLast30Days: number; upcomingStays: number;
 }
 export interface DocumentView { type: DocType; submitted: boolean; verified: boolean; reference?: string; versionId?: number }
+export interface StayPolicy { checkInFrom: string | null; checkOutBy: string | null; guestInstructions: string | null }
 
 export interface RoomInput { category: RoomCategory; name: string; maxGuests: number; listedPrice: number; minPrice: number; totalRooms: number }
 export interface RegisterHotel {

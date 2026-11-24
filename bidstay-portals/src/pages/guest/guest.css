@@ -155,6 +155,31 @@
 .guest-checkout .confirmed { background: #d9f5e7; color: #0e784a; }
 .guest-checkout-total { margin: 16px 0 12px; border-top: 1px solid var(--line); padding-top: 13px; display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; }
 .guest-checkout .guest-cta, .guest-empty .guest-cta { margin-top: 9px; }
+.guest-stay-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.guest-stay-dates > div { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.guest-stay-dates span, .guest-stay-dates small { display: block; color: var(--subtle); font-size: 12px; }
+.guest-stay-dates strong { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.guest-stay-dates svg { flex-shrink: 0; }
+.guest-price-breakdown, .guest-checkout-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.guest-price-breakdown { justify-content: space-between; color: var(--subtle); font-size: 13px; }
+.guest-stay-terms, .guest-payment-receipt { margin: 14px 0; background: #f5f8ff; border-radius: 10px; padding: 12px; }
+.guest-stay-terms h3, .guest-payment-receipt h3 { margin: 0 0 6px; font-size: 14px; }
+.guest-stay-terms .guest-stay-instructions { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+.guest-payment-receipt dl { margin: 0; font-size: 13px; }
+.guest-payment-receipt dl > div { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.guest-payment-receipt dt { color: var(--subtle); }
+.guest-payment-receipt dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.guest-checkout-actions > * { margin-top: 9px; }
+
+@media print {
+  .guest:has(.guest-payment-receipt) .guest-nav,
+  .guest:has(.guest-payment-receipt) .guest-footer,
+  .guest:has(.guest-payment-receipt) .guest-back,
+  .guest:has(.guest-payment-receipt) .guest-checkout-actions,
+  .guest:has(.guest-payment-receipt) .guest-hotel-icon { display: none; }
+  .guest:has(.guest-payment-receipt) .guest-trip { min-height: auto; padding-block: 0; }
+  .guest-payment-receipt { break-inside: avoid; }
+}
 .guest-empty p { margin-top: 4px; font-size: 13px; color: var(--subtle); }
 .guest-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; padding: 0; margin: -1px; clip-path: inset(50%); white-space: nowrap; }
 
