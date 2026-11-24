@@ -12,6 +12,7 @@ import com.bidstay.hotel.HotelRepository;
 import com.bidstay.partner.PartnerChatService;
 import com.bidstay.partner.PartnerMessage;
 import com.bidstay.whatsapp.WhatsAppNotifications;
+import com.bidstay.alerts.GuestAlerts;
 import com.bidstay.user.UserRepository;
 import com.bidstay.inventory.InventoryService;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ public class BookingService {
     private final BidStayProperties props;
     private final Clock clock;
     private final WhatsAppNotifications whatsapp;
+    private final GuestAlerts alerts;
     private final JdbcTemplate jdbc;
     @Value("${bidstay.booking.free-cancellation:false}") private boolean freeCancellation;
 
@@ -106,6 +108,7 @@ public class BookingService {
                         + " · Your payout " + Money.inr(b.getTotalAmount().subtract(b.getCommissionAmount())) + "\n"
                         + "Guest: " + guest, null);
         whatsapp.booked(b.getGuestId(), b.getHotelId(), b.getId(), message.getId());
+        alerts.booking(b.getGuestId(), b.getId(), "CONFIRMED");
         return toView(b);
     }
 
@@ -137,6 +140,7 @@ public class BookingService {
         booking.setCancelledAt(now);
         bids.findById(booking.getBidRequestId()).ifPresent(bid -> bid.setStatus(BidStatus.CANCELLED));
         chat.bot(booking.getHotelId(), PartnerMessage.Kind.SYSTEM, "Booking #" + bookingId + " was cancelled.", null);
+        alerts.booking(booking.getGuestId(), bookingId, "CANCELLED");
         return toView(booking);
     }
 

@@ -7,6 +7,8 @@ export interface HotelResult {
   latitude?: number;
   longitude?: number;
   verified: boolean;
+  hotelPhoto?: string;
+  roomPhoto?: string;
 }
 
 export interface HotelPage { hotels: HotelResult[]; nextCursor?: number }
@@ -73,3 +75,8 @@ export const refundLabel = (status: string) => ({
   REFUND_PENDING: 'Refund queued', REFUND_SUBMITTED: 'Refund processing',
   REFUND_PROCESSED: 'Refund processed', REFUND_REVIEW: 'Refund needs review',
 }[status] ?? 'Refund status unavailable');
+
+
+export function mediaUrl(api: string, path: string) {
+  return api.replace(/\/$/, '') + path;
+}

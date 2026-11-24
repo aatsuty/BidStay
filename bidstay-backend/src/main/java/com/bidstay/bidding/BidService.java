@@ -2,6 +2,7 @@ package com.bidstay.bidding;
 
 import com.bidstay.bidding.BidDtos.*;
 import com.bidstay.whatsapp.WhatsAppNotifications;
+import com.bidstay.alerts.GuestAlerts;
 import com.bidstay.booking.Booking;
 import com.bidstay.booking.BookingService;
 import com.bidstay.booking.BookingView;
@@ -49,6 +50,7 @@ public class BidService {
     private final BidStayProperties props;
     private final Clock clock;
     private final WhatsAppNotifications whatsapp;
+    private final GuestAlerts alerts;
 
     // ------------------------------------------------------------------ guest side
 
@@ -226,8 +228,7 @@ public class BidService {
         };
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "Recorded: you " + what + ".", offer.getId());
         if (OfferStatus.BOOKABLE.contains(offer.getStatus())) {
-            whatsapp.guestOffer(bid.getGuestId(), bid.getId(), offer.getId(), offer.getRound(),
-                    offer.getOfferedPrice(), bid.getExpiresAt());
+            notifyGuestOffer(bid, offer);
         }
         return offer.getStatus();
     }
@@ -352,8 +353,14 @@ public class BidService {
             default -> { /* UNAVAILABLE etc.: nothing to tell the hotel */ }
         }
         if (OfferStatus.BOOKABLE.contains(o.getStatus())) {
-            whatsapp.guestOffer(bid.getGuestId(), bid.getId(), o.getId(), o.getRound(), o.getOfferedPrice(), bid.getExpiresAt());
+            notifyGuestOffer(bid, o);
         }
+    }
+
+    private void notifyGuestOffer(BidRequest bid, BidOffer offer) {
+        String hotel = hotels.findById(offer.getHotelId()).orElseThrow().getName();
+        alerts.offer(bid.getGuestId(), bid.getId(), offer.getId(), offer.getRound(), hotel, offer.getOfferedPrice());
+        whatsapp.guestOffer(bid.getGuestId(), bid.getId(), offer.getId(), offer.getRound(), offer.getOfferedPrice(), bid.getExpiresAt());
     }
 
     private void requireActiveHotel(Long hotelId) {

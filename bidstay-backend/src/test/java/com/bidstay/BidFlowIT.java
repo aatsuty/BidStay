@@ -1,6 +1,8 @@
 package com.bidstay;
 
 import com.bidstay.bidding.BidDtos.*;
+import com.bidstay.alerts.GuestAlerts;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.bidstay.bidding.BidService;
 import com.bidstay.bidding.HotelAction;
 import com.bidstay.bidding.OfferStatus;
@@ -23,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.mock.web.MockMultipartFile;
@@ -30,7 +33,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import javax.imageio.ImageIO;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,6 +46,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,6 +73,8 @@ class BidFlowIT {
     @Autowired Flyway flyway;
     @Autowired MockMvc mvc;
     @Autowired InventoryJobs inventoryJobs;
+    @Autowired ObjectMapper json;
+    @Autowired GuestAlerts alerts;
 
     @Test
     void devDemoAccountsStillReachTheirRoutes() throws Exception {
@@ -108,16 +117,132 @@ class BidFlowIT {
         String endpoint = "/api/v1/partner/hotels/{id}/documents/GST/file";
         mvc.perform(multipart(endpoint, hotel).file(file).header("X-User-Id", 3))
                 .andExpect(status().isForbidden());
-        mvc.perform(multipart(endpoint, hotel).file(file).header("X-User-Id", 5))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].versionId").isNumber());
-        mvc.perform(get("/api/v1/admin/hotels/{id}/documents/GST/files/1", hotel).header("X-User-Id", 5))
+        String uploaded = mvc.perform(multipart(endpoint, hotel).file(file).header("X-User-Id", 5))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        long versionId = json.readTree(uploaded).get(0).path("versionId").asLong();
+        assertTrue(versionId > 0);
+        mvc.perform(get("/api/v1/admin/hotels/{id}/documents/GST/files/{version}", hotel, versionId).header("X-User-Id", 5))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/admin/hotels/{id}/documents/GST/files/1", hotel).header("X-User-Id", 4))
+        mvc.perform(get("/api/v1/admin/hotels/{id}/documents/GST/files/{version}", hotel, versionId).header("X-User-Id", 4))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/v1/admin/hotels/{id}/documents/GST/verify", hotel).header("X-User-Id", 4))
                 .andExpect(status().isConflict());
-        mvc.perform(post("/api/v1/admin/hotels/{id}/documents/GST/verify", hotel).param("versionId", "1").header("X-User-Id", 4))
+        mvc.perform(post("/api/v1/admin/hotels/{id}/documents/GST/verify", hotel).param("versionId", String.valueOf(versionId)).header("X-User-Id", 4))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.documents[0].verified").value(true));
+    }
+
+    @Test
+    void publishedHotelAndRoomPhotosFlowFromPartnerToAdminToGuests() throws Exception {
+        long hotelId = sunrise();
+        String partner = "/api/v1/partner/hotels/" + hotelId + "/media";
+        String gallery = mvc.perform(get(partner).header("X-User-Id", 3)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long roomId = 0;
+        for (var room : json.readTree(gallery).path("rooms")) {
+            if ("Standard Room".equals(room.path("name").asText())) roomId = room.path("id").asLong();
+        }
+        assertTrue(roomId > 0);
+        var bytes = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(800, 500, BufferedImage.TYPE_INT_RGB), "png", bytes);
+        var file = new MockMultipartFile("file", "room.png", "image/png", bytes.toByteArray());
+        mvc.perform(multipart(partner).file(file).header("X-User-Id", 1))
+                .andExpect(status().isForbidden());
+        mvc.perform(multipart(partner).file(file).param("caption", "Hotel entrance").header("X-User-Id", 3))
+                .andExpect(status().isCreated());
+        mvc.perform(multipart(partner).file(file).param("roomTypeId", String.valueOf(roomId))
+                .param("caption", "Standard bedroom").header("X-User-Id", 3)).andExpect(status().isCreated());
+
+        var queue = json.readTree(mvc.perform(get("/api/v1/admin/media").header("X-User-Id", 4))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("photos");
+        assertEquals(2, queue.size());
+        long roomPhoto = queue.get(0).path("id").asLong();
+        long hotelPhoto = queue.get(1).path("id").asLong();
+        mvc.perform(get("/api/v1/media/{photo}/full", roomPhoto)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/admin/media/{photo}/preview", roomPhoto).header("X-User-Id", 3))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/media/{photo}/preview", roomPhoto).header("X-User-Id", 4))
+                .andExpect(status().isOk());
+        for (long id : new long[]{roomPhoto, hotelPhoto}) {
+            mvc.perform(post("/api/v1/admin/media/{id}/review", id).header("X-User-Id", 4)
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"approved\":true}"))
+                    .andExpect(status().isNoContent());
+        }
+        LocalDate day = LocalDate.now().plusDays(12);
+        mvc.perform(get("/api/v1/hotels/search").param("city", "Delhi").param("checkIn", day.toString())
+                        .param("checkOut", day.plusDays(1).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotels[0].hotelPhoto").value("/api/v1/media/" + hotelPhoto + "/thumb"))
+                .andExpect(jsonPath("$.hotels[0].roomPhoto").value("/api/v1/media/" + roomPhoto + "/thumb"));
+        mvc.perform(get("/api/v1/hotels/{id}", hotelId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.photos[0].caption").value("Hotel entrance"))
+                .andExpect(jsonPath("$.rooms[?(@.name == 'Standard Room')].photos[0].caption").value(org.hamcrest.Matchers.hasItem("Standard bedroom")))
+                .andExpect(jsonPath("$.rooms[0].minimumPrice").doesNotExist())
+                .andExpect(jsonPath("$.address").doesNotExist());
+        var thumbnail = mvc.perform(get("/api/v1/media/{photo}/thumb", roomPhoto)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        assertEquals(480, ImageIO.read(new java.io.ByteArrayInputStream(thumbnail)).getWidth());
+        mvc.perform(post(partner + "/{photo}/withdraw", roomPhoto).header("X-User-Id", 3))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/media/{photo}/thumb", roomPhoto)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void existingApprovedPhotoEvidenceCanBePublishedExplicitly() throws Exception {
+        long hotelId = hotels.findByName("Hotel Metro Inn").orElseThrow().getId();
+        var bytes = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(120, 100, BufferedImage.TYPE_INT_RGB), "jpg", bytes);
+        String document = "/api/v1/partner/hotels/" + hotelId + "/documents/PHOTOS/file";
+        var file = new MockMultipartFile("file", "entrance.jpg", "image/jpeg", bytes.toByteArray());
+        String uploaded = mvc.perform(multipart(document).file(file).header("X-User-Id", 3))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        long version = 0;
+        for (var row : json.readTree(uploaded)) if ("PHOTOS".equals(row.path("type").asText())) version = row.path("versionId").asLong();
+        assertTrue(version > 0);
+        String url = "/api/v1/admin/hotels/" + hotelId + "/documents/PHOTOS/";
+        mvc.perform(post(url + "publish").param("versionId", String.valueOf(version)).header("X-User-Id", 4))
+                .andExpect(status().isConflict());
+        mvc.perform(post(url + "verify").param("versionId", String.valueOf(version)).header("X-User-Id", 4))
+                .andExpect(status().isOk());
+        mvc.perform(post(url + "publish").param("versionId", String.valueOf(version)).header("X-User-Id", 4))
+                .andExpect(status().isCreated());
+        mvc.perform(post(url + "publish").param("versionId", String.valueOf(version)).header("X-User-Id", 4))
+                .andExpect(status().isConflict());
+        // Verification replacement moves an active property back to review. Its gallery stays private until it is live.
+        mvc.perform(get("/api/v1/hotels/{id}", hotelId)).andExpect(status().isNotFound());
+        var hotel = hotels.findById(hotelId).orElseThrow();
+        try {
+            hotel.setStatus(HotelStatus.ACTIVE);
+            hotels.save(hotel);
+            mvc.perform(get("/api/v1/hotels/{id}", hotelId)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.photos[0].caption").value("Property photo"));
+        } finally {
+            hotel.setStatus(HotelStatus.ACTIVE);
+            hotels.save(hotel);
+        }
+    }
+
+    @Test
+    void savedSearchAlertsAreOwnedAndReadOnce() throws Exception {
+        LocalDate date = LocalDate.now().plusDays(14);
+        String body = """
+                {"city":"Delhi","area":"Paharganj","checkIn":"%s","checkOut":"%s",
+                   "category":"STANDARD","rooms":1,"guests":2,"budget":8000}
+                """.formatted(date, date.plusDays(1));
+        String saved = mvc.perform(post("/api/v1/guest/saved-searches").header("X-User-Id", 2)
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long id = json.readTree(saved).path("id").asLong();
+        alerts.checkDue();
+        mvc.perform(get("/api/v1/guest/alerts").header("X-User-Id", 2))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.alerts[0].kind").value("PRICE_MATCH"));
+        mvc.perform(get("/api/v1/guest/alerts").header("X-User-Id", 1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.alerts[?(@.searchId == " + id + ")]").isEmpty());
+        mvc.perform(put("/api/v1/guest/saved-searches/{id}", id).header("X-User-Id", 1)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"enabled\":false}")).andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/guest/alerts/read").header("X-User-Id", 2)
+                .contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/guest/alerts").header("X-User-Id", 2))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.alerts[0].read").value(true));
     }
 
     @Test

@@ -18,8 +18,11 @@ import AdminHotels from './pages/admin/AdminHotels';
 import AdminBookings from './pages/admin/AdminBookings';
 import AdminBids from './pages/admin/AdminBids';
 import { Loading } from './components/ui';
+import ListingPhotos from './pages/hotel/ListingPhotos';
+import ListingMediaReview from './pages/admin/ListingMediaReview';
 import GuestShell from './pages/guest/GuestShell';
 import Search from './pages/guest/Search';
+import Alerts from './pages/guest/Alerts';
 import { Checkout, Offers, Trips } from './pages/guest/TripFlow';
 
 export function useMe() {
@@ -48,6 +51,7 @@ export default function App() {
         <Route path="/offers/:bidId" element={<Offers />} />
         <Route path="/checkout/:bookingId" element={<Checkout />} />
         <Route path="/trips" element={<Trips />} />
+        <Route path="/alerts" element={<Alerts />} />
       </Route>
       <Route path="/login" element={<Login />} />
       <Route path="/hotel" element={<Guard role="HOTEL_STAFF"><HotelShell /></Guard>}>
@@ -58,11 +62,13 @@ export default function App() {
         <Route path="bookings" element={<Bookings />} />
         <Route path="insights" element={<Insights />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="photos" element={<ListingPhotos />} />
         <Route path="register" element={<Register />} />
       </Route>
       <Route path="/admin" element={<Guard role="ADMIN"><AdminShell /></Guard>}>
         <Route index element={<Overview />} />
         <Route path="hotels" element={<AdminHotels />} />
+        <Route path="photos" element={<ListingMediaReview />} />
         <Route path="bookings" element={<AdminBookings />} />
         <Route path="bids" element={<AdminBids />} />
       </Route>

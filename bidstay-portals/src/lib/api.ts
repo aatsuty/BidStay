@@ -33,6 +33,7 @@ export function make(baseUrl: string, userId: number | null, token?: string) {
     get: <T,>(p: string) => request<T>('GET', p),
     post: <T,>(p: string, b?: unknown) => request<T>('POST', p, b ?? {}),
     put: <T,>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
+    delete: (p: string) => request<void>('DELETE', p),
     download: (p: string) => request<Blob>('GET', p, undefined, true),
   };
 }

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom';
-import { BedDouble, Building2, CalendarDays, ChevronRight, CircleUserRound, LogOut, X } from 'lucide-react';
+import { BedDouble, Bell, Building2, CalendarDays, ChevronRight, CircleUserRound, LogOut, X } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useMe } from '../../App';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import './guest.css';
 
-type GuestContext = { signedIn: boolean; openSignIn: () => void };
+type GuestContext = { signedIn: boolean; checkingSignIn: boolean; openSignIn: () => void };
 export const useGuest = () => useOutletContext<GuestContext>();
 
 export default function GuestShell() {
@@ -18,6 +19,15 @@ export default function GuestShell() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [logoutError, setLogoutError] = useState<unknown>();
   const signedIn = me.data?.role === 'GUEST';
+  const checkingSignIn = session.userId !== null && me.isPending;
+  const alerts = useQuery({
+    queryKey: ['guest-alert-count', session.cacheKey],
+    queryFn: () => api.get<{ count: number }>('/api/v1/guest/alerts/unread'),
+    enabled: signedIn,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: 'always',
+  });
+  const unread = alerts.data?.count ?? 0;
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [pathname]);
 
   async function logout() {
@@ -38,6 +48,7 @@ export default function GuestShell() {
           <nav aria-label="Guest navigation">
             <NavLink to="/" end>Find a stay</NavLink>
             <NavLink to="/trips"><CalendarDays size={16} /> My trips</NavLink>
+            <NavLink to="/alerts"><Bell size={16} /> Alerts {unread > 0 && <span className="guest-alert-badge" aria-label={`${unread} unread alerts`}>{unread > 99 ? '99+' : unread}</span>}</NavLink>
           </nav>
           <div className="guest-nav-actions">
             <Link to={me.data?.role === 'ADMIN' ? '/admin' : me.data?.role === 'HOTEL_STAFF' ? '/hotel' : '/login'} className="guest-partner">
@@ -52,7 +63,7 @@ export default function GuestShell() {
         </div>
       </header>
       <div className="guest-container"><ErrorBox error={logoutError} /></div>
-      <Outlet context={{ signedIn, openSignIn: () => setShowSignIn(true) } satisfies GuestContext} />
+      <Outlet context={{ signedIn, checkingSignIn, openSignIn: () => setShowSignIn(true) } satisfies GuestContext} />
       <footer className="guest-footer"><div className="guest-container"><Link to="/" className="guest-wordmark">Bid<strong>Stay</strong></Link><Link to="/login">Hotel partner &amp; admin portal <ChevronRight size={14} /></Link></div></footer>
       {showSignIn && <GuestSignIn close={() => setShowSignIn(false)} />}
     </div>

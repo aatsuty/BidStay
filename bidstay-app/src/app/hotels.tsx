@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Chip, Empty, ErrorText, Field, Loading } from '@/components/ui';
@@ -115,6 +115,7 @@ export default function HotelsScreen() {
 
         {hotels.map((h) => {
           const on = selected.has(h.id);
+          const photo = h.roomPhoto ?? h.hotelPhoto;
           return (
             <Pressable key={h.id} onPress={() => toggle(h.id)}>
               <Card style={on ? { borderColor: colors.primary, borderWidth: 2 } : undefined}>
@@ -134,6 +135,9 @@ export default function HotelsScreen() {
                   >
                     {on && <Text style={{ color: '#fff', fontWeight: '800' }}>✓</Text>}
                   </View>
+                  {photo && <Image source={{ uri: baseUrl.replace(/\/$/, '') + photo }}
+                    accessibilityLabel={h.roomPhoto ? h.name + ' room' : h.name}
+                    style={{ width: 62, height: 56, borderRadius: 8, marginRight: 9 }} />}
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>{h.name}</Text>
                     <Text style={{ color: colors.muted, marginTop: 2 }}>

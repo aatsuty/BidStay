@@ -1,35 +1,53 @@
 import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowDown, ArrowRight, BedDouble, CalendarDays, Check, ChevronDown, IndianRupee, List, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, Star, Users } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, IndianRupee, Images, List, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, Star, Users } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { todayISO } from '../../lib/format';
 import { useSession } from '../../lib/session';
+import HotelDetails from './HotelDetails';
 import { useGuest } from './GuestShell';
-import { addDays, rupees, type Bid, type HotelPage, type HotelResult } from './models';
+import { addDays, mediaUrl, rupees, type Bid, type HotelPage, type HotelResult } from './models';
 
 const MAX_SELECTED = 50;
 const HotelMap = lazy(() => import('./HotelMap'));
 const ROOM_OPTIONS = ['STANDARD', 'DELUXE', 'SUITE'] as const;
 type SearchFields = { city: string; checkIn: string; checkOut: string; rooms: number; guests: number; category: typeof ROOM_OPTIONS[number] };
 
-function initialSearch(): SearchFields {
-  const checkIn = addDays(todayISO(), 1);
-  return { city: 'Delhi', checkIn, checkOut: addDays(checkIn, 1), rooms: 1, guests: 2, category: 'STANDARD' };
+function initialSearch(params: URLSearchParams): SearchFields {
+  const today = todayISO();
+  const validDate = (value: string | null): value is string => !!value
+    && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && addDays(value, 0) === value;
+  const inDate = params.get('checkIn');
+  const checkIn = validDate(inDate) && inDate >= today ? inDate : addDays(today, 1);
+  const outDate = params.get('checkOut');
+  const checkOut = validDate(outDate) && outDate > checkIn && outDate <= addDays(checkIn, 30) ? outDate : addDays(checkIn, 1);
+  const category = ROOM_OPTIONS.find((option) => option === params.get('category')) ?? 'STANDARD';
+  const integer = (key: string, max: number, fallback: number) => {
+    const value = Number(params.get(key));
+    return Number.isInteger(value) && value >= 1 && value <= max ? value : fallback;
+  };
+  return { city: params.get('city')?.trim().slice(0, 80) || 'Delhi', checkIn, checkOut,
+    rooms: integer('rooms', 10, 1), guests: integer('guests', 40, 2), category };
 }
 
 export default function Search() {
   const navigate = useNavigate();
-  const { signedIn, openSignIn } = useGuest();
+  const { signedIn, checkingSignIn, openSignIn } = useGuest();
   const { baseUrl } = useSession();
   const api = useApi();
-  const [form, setForm] = useState(initialSearch);
+  const [params] = useSearchParams();
+  const [form, setForm] = useState(() => initialSearch(params));
   const [criteria, setCriteria] = useState(form);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [area, setArea] = useState('');
+  const [area, setArea] = useState(() => params.get('area')?.slice(0, 100) ?? '');
   const [panel, setPanel] = useState<'map' | 'list'>('map');
-  const [price, setPrice] = useState('1500');
+  const [price, setPrice] = useState(() => {
+    const budget = Number(params.get('budget'));
+    return budget >= 1 && budget <= 100_000 ? String(budget) : '1500';
+  });
+  const [details, setDetails] = useState<HotelResult>();
 
   const hotelQuery = useInfiniteQuery({
     queryKey: ['hotel-search', baseUrl, criteria],
@@ -41,10 +59,11 @@ export default function Search() {
       return api.get<HotelPage>('/api/v1/hotels/search?' + params);
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    refetchOnWindowFocus: 'always',
   });
   const hotels = useMemo(() => hotelQuery.data?.pages.flatMap((page) => page.hotels) ?? [], [hotelQuery.data]);
   const areas = useMemo(() => [...new Set(hotels.map((hotel) => hotel.area))].sort(), [hotels]);
-  const visible = useMemo(() => area ? hotels.filter((hotel) => hotel.area === area) : hotels, [hotels, area]);
+  const visible = useMemo(() => area ? hotels.filter((hotel) => hotel.area.toLowerCase() === area.toLowerCase()) : hotels, [hotels, area]);
   const targets = hotels.filter((hotel) => selected.has(hotel.id));
   const listed = targets.length ? targets : visible;
   const priceHint = listed.length ? listed.reduce((total, hotel) => total + hotel.listedPrice, 0) / listed.length : 0;
@@ -56,6 +75,10 @@ export default function Search() {
     onSuccess: (bid) => navigate('/offers/' + bid.bidId),
   });
 
+  const save = useMutation({
+    mutationFn: () => api.post('/api/v1/guest/saved-searches', { ...criteria, area, budget: offer }),
+  });
+
   function change<K extends keyof SearchFields>(key: K, value: SearchFields[K]) {
     setForm((previous) => ({ ...previous, [key]: value }));
   }
@@ -64,7 +87,9 @@ export default function Search() {
     event.preventDefault();
     setSelected(new Set());
     setArea('');
-    setCriteria({ ...form, city: form.city.trim() });
+    const next = { ...form, city: form.city.trim() };
+    if (JSON.stringify(next) === JSON.stringify(criteria)) void hotelQuery.refetch();
+    setCriteria(next);
     send.reset();
   }
 
@@ -115,7 +140,7 @@ export default function Search() {
             </div>
           </div>
           <div className="guest-filters">
-            <label><span className="guest-visually-hidden">Neighbourhood</span><select value={area} onChange={(event) => setArea(event.target.value)}><option value="">All neighbourhoods</option>{areas.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></label>
+            <label><span className="guest-visually-hidden">Neighbourhood</span><select value={areas.find((option) => option.toLowerCase() === area.toLowerCase()) ?? area} onChange={(event) => setArea(event.target.value)}><option value="">All neighbourhoods</option>{area && !areas.some((option) => option.toLowerCase() === area.toLowerCase()) && <option value={area}>{area}</option>}{areas.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></label>
             <label><span className="guest-visually-hidden">Room type</span><select value={form.category} onChange={(event) => {
               const category = event.target.value as SearchFields['category'];
               change('category', category);
@@ -128,7 +153,7 @@ export default function Search() {
           {panel === 'map' && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}><HotelMap hotels={visible} selected={selected} toggle={toggle} /></Suspense>}
           <div className={panel === 'map' ? 'guest-hotels beneath-map' : 'guest-hotels'}>
             {!hotelQuery.isPending && !hotelQuery.error && !visible.length && <div className="guest-empty"><BedDouble size={25} /><h3>No available hotels</h3><p>Try changing your dates, room type or guest count.</p></div>}
-            {visible.map((hotel) => <HotelRow key={hotel.id} hotel={hotel} selected={selected.has(hotel.id)} toggle={() => toggle(hotel.id)} />)}
+            {visible.map((hotel) => <HotelRow key={hotel.id} hotel={hotel} selected={selected.has(hotel.id)} toggle={() => toggle(hotel.id)} openDetails={() => setDetails(hotel)} baseUrl={baseUrl} />)}
           </div>
           {hotelQuery.hasNextPage && <button className="guest-quiet guest-more" disabled={hotelQuery.isFetchingNextPage} onClick={() => { void hotelQuery.fetchNextPage(); }}>Load more hotels</button>}
         </div>
@@ -148,14 +173,19 @@ export default function Search() {
             <span>{targets.length} {targets.length === 1 ? 'hotel' : 'hotels'} selected</span>
             {!!targets.length && <button onClick={() => setSelected(new Set())}>Clear</button>}
           </div>
-          <ErrorBox error={send.error} />
+          <ErrorBox error={send.error ?? save.error} />
           {searchDirty && <p className="guest-price-hint">Find hotels again to apply your updated search.</p>}
-          <button className="guest-cta guest-submit" disabled={searchDirty || !targets.length || offer < 1 || offer > 100_000 || send.isPending} onClick={() => signedIn ? send.mutate() : openSignIn()}>
+          <button className="guest-cta guest-submit" disabled={checkingSignIn || searchDirty || !targets.length || offer < 1 || offer > 100_000 || send.isPending} onClick={() => signedIn ? send.mutate() : openSignIn()}>
             {send.isPending ? 'Sending your bid…' : !signedIn ? 'Sign in to bid' : targets.length ? `Send bid to ${targets.length} ${targets.length === 1 ? 'hotel' : 'hotels'}` : 'Choose hotels to bid'} <ArrowRight size={19} />
           </button>
+          <button className="guest-save-search" type="button" disabled={checkingSignIn || searchDirty || offer < 1 || offer > 100_000 || save.isPending}
+            onClick={() => signedIn ? save.mutate() : openSignIn()}><Bell size={16} /> {save.isPending ? 'Saving search…' : 'Save search and get alerts'}</button>
+          {save.isSuccess && <p className="guest-save-success" role="status">Search saved. <Link to="/alerts">View alerts</Link></p>}
           <p className="guest-price-note"><ShieldCheck size={17} /> You pay only if you choose an offer and complete checkout.</p>
         </aside>
       </section>
+      {details && <HotelDetails id={details.id} name={details.name} selected={selected.has(details.id)}
+        toggle={() => toggle(details.id)} close={() => setDetails(undefined)} />}
       <section className="guest-how" aria-label="How bidding works">
         <div><span><SearchIcon size={19} /></span><h3>Choose your stay</h3><p>Find hotels with space for your dates.</p></div>
         <div><span><IndianRupee size={19} /></span><h3>Send one bid</h3><p>Selected hotels can accept or counter your price.</p></div>
@@ -166,19 +196,27 @@ export default function Search() {
   );
 }
 
-function HotelRow({ hotel, selected, toggle }: { hotel: HotelResult; selected: boolean; toggle: () => void }) {
+function HotelRow({ hotel, selected, toggle, openDetails, baseUrl }: {
+  hotel: HotelResult; selected: boolean; toggle: () => void; openDetails: () => void; baseUrl: string;
+}) {
+  const cover = hotel.hotelPhoto ?? hotel.roomPhoto;
   return (
-    <button className={'guest-hotel' + (selected ? ' selected' : '')} type="button" aria-pressed={selected} onClick={toggle}>
-      <span className="guest-hotel-icon"><BedDouble size={21} /></span>
-      <span className="guest-hotel-description">
-        <strong>{hotel.name}</strong>
+    <article className={'guest-hotel' + (selected ? ' selected' : '')}>
+      <button type="button" className="guest-hotel-picture" onClick={openDetails} aria-label={`View photos of ${hotel.name}`}>
+        {cover ? <img src={mediaUrl(baseUrl, cover)} alt="" loading="lazy" /> : <BedDouble size={23} />}
+      </button>
+      <div className="guest-hotel-description">
+        <button className="guest-hotel-name" type="button" onClick={openDetails}>{hotel.name}</button>
         <span><MapPin size={13} /> {hotel.area}
           {hotel.starRating != null && hotel.starRating > 0 && <span><Star size={12} /> {hotel.starRating}-star</span>}
           {hotel.verified && <span><ShieldCheck size={13} /> Verified</span>}
         </span>
-      </span>
+        {hotel.roomPhoto && <button className="guest-room-link" type="button" onClick={openDetails}><Images size={13} /> See room photos</button>}
+      </div>
       <span className="guest-hotel-rate"><strong>{rupees.format(hotel.listedPrice)}</strong><small>per night</small></span>
-      <span className="guest-select-icon">{selected ? <Check size={16} /> : <Plus size={16} />}</span>
-    </button>
+      <button className="guest-select-icon" type="button" aria-label={`${selected ? 'Remove' : 'Select'} ${hotel.name}`} aria-pressed={selected} onClick={toggle}>
+        {selected ? <Check size={16} /> : <Plus size={16} />}
+      </button>
+    </article>
   );
 }

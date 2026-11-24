@@ -45,7 +45,7 @@ export default function HotelShell() {
   const pending = offersQ.data?.length ?? 0;
   const links: [string, string, number?][] = [
     ['requests', '💬 Requests', pending], ['rates', '₹ Rates & rules'], ['availability', '📅 Availability'],
-    ['bookings', '🧾 Bookings'], ['insights', '📈 Insights'], ['profile', '🏨 Profile & documents'],
+    ['bookings', '🧾 Bookings'], ['insights', '📈 Insights'], ['profile', '🏨 Profile & documents'], ['photos', '📷 Listing photos'],
   ];
 
   return (

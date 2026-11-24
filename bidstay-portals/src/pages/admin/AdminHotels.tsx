@@ -57,6 +57,9 @@ function HotelCard({ h }: { h: AdminHotel }) {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
   });
+  const publish = useMutation({
+    mutationFn: (versionId: number) => api.post(`/api/v1/admin/hotels/${h.id}/documents/PHOTOS/publish?versionId=${versionId}`),
+  });
   const verified = h.documents.filter((d) => d.verified).length;
 
   return (
@@ -66,7 +69,7 @@ function HotelCard({ h }: { h: AdminHotel }) {
         <HotelStatusBadge status={h.status} />
       </div>
       {h.rejectionReason && <div className="error" style={{ marginTop: 10 }}>Rejected: {h.rejectionReason}</div>}
-      <ErrorBox error={act.error ?? download.error} />
+      <ErrorBox error={act.error ?? download.error ?? publish.error} />
       <div style={{ marginTop: 12 }}>
         <div className="muted small bold" style={{ marginBottom: 4 }}>Documents · {verified} of {h.documents.length} verified</div>
         {h.documents.map((d) => (
@@ -75,6 +78,10 @@ function HotelCard({ h }: { h: AdminHotel }) {
             <span className={'badge ' + (d.verified ? 'ok' : d.submitted ? 'warn' : 'bad')} style={{ width: 118, textAlign: 'center' }}>{d.verified ? '✓ Verified' : d.submitted ? 'To verify' : 'Missing'}</span>
             <div className="grow muted small" style={{ wordBreak: 'break-all' }}>{d.reference ?? 'Not submitted yet'}</div>
             {d.versionId && <button className="btn ghost sm" disabled={download.isPending} onClick={() => download.mutate(d)}>Download file</button>}
+            {d.type === 'PHOTOS' && d.versionId && d.verified && /\.(png|jpe?g)$/i.test(d.reference ?? '') &&
+              <button className="btn soft sm" disabled={publish.isPending || publish.isSuccess} onClick={() => {
+                if (d.versionId && window.confirm('Publish this approved image in the guest hotel gallery?')) publish.mutate(d.versionId);
+              }}>{publish.isSuccess ? 'Published to gallery' : 'Publish to guest gallery'}</button>}
             {d.submitted && (d.verified
               ? <button className="btn ghost sm" disabled={act.isPending} onClick={() => verify(d, false)}>Undo</button>
               : <button className="btn soft sm" disabled={act.isPending} onClick={() => verify(d, true)}>Mark verified</button>)}

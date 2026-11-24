@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/api';
 import type { DocType, DocumentView } from '../../lib/types';
@@ -31,7 +32,7 @@ export default function Profile() {
       <PageHead title={hotel.name} sub={hotel.area}><HotelStatusBadge status={hotel.status} /></PageHead>
       <div className="card">
         <h2>Verification documents</h2>
-        <p className="muted small">Upload PDF, JPEG or PNG files up to 5 MB. Replacing an approved document sends the hotel back for review.</p>
+        <p className="muted small">Upload PDF, JPEG or PNG files up to 5 MB. Replacing an approved document sends the hotel back for review. Upload guest-facing images in <Link to="../photos">Listing photos</Link>.</p>
         <ErrorBox error={submit.error} />
         {q.isLoading && <Loading />}
         {q.data?.map((d) => (

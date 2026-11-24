@@ -2,6 +2,7 @@ package com.bidstay.hotel;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,6 +26,11 @@ public class HotelController {
                                    @RequestParam(defaultValue = "2") int guests,
                                    @RequestParam(defaultValue = "0") long after) {
         return search.available(city, checkIn, checkOut, category, rooms, guests, after);
+    }
+
+    @GetMapping("/{hotelId}")
+    public HotelSearch.Details details(@PathVariable long hotelId) {
+        return search.details(hotelId);
     }
 
     /** Step 4 of the guest flow: list hotels the guest can choose to send a bid to. */

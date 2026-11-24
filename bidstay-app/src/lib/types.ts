@@ -23,6 +23,8 @@ export interface HotelSummary {
   starRating: number | null;
   category: RoomCategory;
   listedPrice: number;
+  hotelPhoto?: string;
+  roomPhoto?: string;
 }
 
 export interface OfferView {

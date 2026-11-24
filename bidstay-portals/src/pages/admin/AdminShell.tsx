@@ -22,7 +22,7 @@ export default function AdminShell() {
   const stats = useQuery({ queryKey: ['adminStats'], queryFn: () => api.get<AdminStats>('/api/v1/admin/stats'), refetchInterval: 15000 });
   const links: [string, string, number?, boolean?][] = [
     ['/admin', '📊 Overview', undefined, true], ['/admin/hotels', '🏨 Hotels', stats.data?.pendingHotels],
-    ['/admin/bids', '🔨 Bids'], ['/admin/bookings', '🧾 Bookings & commission'],
+    ['/admin/photos', '📷 Listing photo review'], ['/admin/bids', '🔨 Bids'], ['/admin/bookings', '🧾 Bookings & commission'],
   ];
   return (
     <div className="shell">
