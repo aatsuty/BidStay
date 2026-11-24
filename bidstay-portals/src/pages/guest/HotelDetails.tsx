@@ -4,14 +4,15 @@ import { BedDouble, Check, Images, MapPin, Plus, Users, X } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { useSession } from '../../lib/session';
+import type { StayPolicy } from '../../lib/types';
 import { mediaUrl, rupees } from './models';
 
 interface Photo { id: number; caption?: string }
 interface Room { id: number; name: string; maxGuests: number; listedPrice: number; photos: Photo[] }
-interface Hotel { id: number; name: string; city: string; area: string; starRating?: number; photos: Photo[]; rooms: Room[] }
+interface Hotel { id: number; name: string; city: string; area: string; starRating?: number; photos: Photo[]; rooms: Room[]; stayPolicy?: StayPolicy }
 
-export default function HotelDetails({ id, name, selected, toggle, close }: {
-  id: number; name: string; selected: boolean; toggle: () => void; close: () => void;
+export default function HotelDetails({ id, name, selection, close }: {
+  id: number; name: string; selection?: { selected: boolean; toggle: () => void }; close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const api = useApi();
@@ -56,7 +57,14 @@ export default function HotelDetails({ id, name, selected, toggle, close }: {
           <div className="guest-room-rate"><strong>{rupees.format(room.listedPrice)}</strong><span>Listed per night</span></div>
         </article>
       ))}</div>
-      <button className="guest-cta" type="button" onClick={() => { toggle(); close(); }}>{selected ? <Check size={16} /> : <Plus size={16} />}{selected ? 'Remove hotel from bid' : 'Add hotel to bid'}</button>
+      {hotel.data.stayPolicy && <section className="guest-stay-terms">
+        <h3>Stay policy</h3>
+        <p>Check-in from {hotel.data.stayPolicy.checkInFrom} IST · Check-out by {hotel.data.stayPolicy.checkOutBy} IST</p>
+        {hotel.data.stayPolicy.guestInstructions && <p className="guest-stay-instructions">{hotel.data.stayPolicy.guestInstructions}</p>}
+      </section>}
+      {selection && <button className="guest-cta" type="button" onClick={() => { selection.toggle(); close(); }}>
+        {selection.selected ? <Check size={16} /> : <Plus size={16} />}{selection.selected ? 'Remove hotel from bid' : 'Add hotel to bid'}
+      </button>}
     </>}
   </dialog>;
 }

@@ -86,6 +86,29 @@ class WhatsAppIT {
         assertEquals(0, jdbc.queryForObject("select count(*) from whatsapp_inbound where provider_message_id = 'wamid.wrong-sender'", Integer.class));
     }
 
+    @Test
+    void queuedRequestForWithdrawnBidIsSkipped() {
+        when(transport.enabled()).thenReturn(false);
+        notifications.setConsent(3L, 1L, true);
+        LocalDate arrival = LocalDate.now().plusDays(12);
+        var bid = bids.create(1L, new CreateBid("Delhi", arrival, arrival.plusDays(1), 1, 2,
+                RoomCategory.STANDARD, new BigDecimal("1100"), List.of(1L)));
+        long offer = bid.offers().getFirst().offerId();
+        bids.cancel(1L, bid.bidId());
+        jdbc.update("""
+                insert into whatsapp_outbox
+                  (consent_id, event_key, template_name, content, offer_id, round, send_before, next_attempt_at)
+                select id, 'withdrawn-fixture', 'bidstay_request', '[]', ?, 1,
+                       now() + interval '1 hour', now() - interval '1 hour'
+                from whatsapp_consents where user_id = 3 and hotel_id = 1
+                """, offer);
+        when(transport.enabled()).thenReturn(true);
+        notifications.deliver();
+        assertEquals("SKIPPED", jdbc.queryForObject("""
+                select state from whatsapp_outbox where event_key = 'withdrawn-fixture' for update
+                """, String.class));
+    }
+
     private String message(String id, String from, String text) {
         return """
                 {"entry":[{"changes":[{"value":{"metadata":{"phone_number_id":"101"},"messages":[

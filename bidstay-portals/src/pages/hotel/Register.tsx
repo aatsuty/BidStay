@@ -1,22 +1,29 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/api';
 import type { MyHotel, RegisterHotel, RoomCategory, RoomInput } from '../../lib/types';
 import { ErrorBox, PageHead } from '../../components/ui';
+import { HotelContext } from './HotelContext';
 
 const blank = (category: RoomCategory = 'STANDARD'): RoomInput => ({ category, name: category === 'STANDARD' ? 'Standard Room' : category === 'DELUXE' ? 'Deluxe Room' : 'Suite', maxGuests: 2, listedPrice: 0, minPrice: 0, totalRooms: 5 });
 
-export default function Register({ first }: { first?: boolean }) {
+export default function Register({ first, onRegistered }: { first?: boolean; onRegistered?: (id: number) => void }) {
   const api = useApi();
   const qc = useQueryClient();
   const nav = useNavigate();
+  const hotelContext = useContext(HotelContext);
   const [f, setF] = useState<Omit<RegisterHotel, 'rooms'>>({ name: '', city: 'Delhi', area: '', address: '', starRating: 2, gstNumber: '', contactPhone: '' });
   const [rooms, setRooms] = useState<RoomInput[]>([blank()]);
 
   const create = useMutation({
     mutationFn: () => api.post<MyHotel>('/api/v1/partner/hotels', { ...f, rooms }),
-    onSuccess: async (h) => { localStorage.setItem('bidstay.portal.hotel', String(h.id)); await qc.invalidateQueries({ queryKey: ['partnerHotels'] }); nav('/hotel/profile'); },
+    onSuccess: async (hotel) => {
+      const select = onRegistered ?? hotelContext?.select;
+      select?.(hotel.id);
+      await qc.invalidateQueries({ queryKey: ['partnerHotels'] });
+      nav('/hotel/profile');
+    },
   });
   const upd = (patch: Partial<typeof f>) => setF({ ...f, ...patch });
   const updRoom = (i: number, patch: Partial<RoomInput>) => setRooms(rooms.map((r, j) => (j === i ? { ...r, ...patch } : r)));

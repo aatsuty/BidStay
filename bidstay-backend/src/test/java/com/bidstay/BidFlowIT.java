@@ -4,6 +4,7 @@ import com.bidstay.bidding.BidDtos.*;
 import com.bidstay.alerts.GuestAlerts;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.bidstay.bidding.BidService;
+import com.bidstay.bidding.BidStatus;
 import com.bidstay.bidding.HotelAction;
 import com.bidstay.bidding.OfferStatus;
 import com.bidstay.booking.BookingService;
@@ -26,6 +27,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.mock.web.MockMultipartFile;
@@ -43,6 +45,9 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -75,6 +80,7 @@ class BidFlowIT {
     @Autowired InventoryJobs inventoryJobs;
     @Autowired ObjectMapper json;
     @Autowired GuestAlerts alerts;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void devDemoAccountsStillReachTheirRoutes() throws Exception {
@@ -304,6 +310,7 @@ class BidFlowIT {
 
         BookingView booking = bidService.acceptOffer(1L, v.bidId(), offerId);
         assertEquals(BookingStatus.PENDING_PAYMENT, booking.status());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class, () -> bidService.cancel(1L, v.bidId())).getStatus());
         assertEquals(0, new BigDecimal("3000.00").compareTo(booking.totalAmount()));   // 1500 x 2 nights x 1 room
         assertNull(booking.hotelAddress());                                           // hidden until paid
 
@@ -312,6 +319,64 @@ class BidFlowIT {
         assertNotNull(paid.hotelAddress());
         // duplicate webhook is harmless
         assertEquals(BookingStatus.CONFIRMED, bookingService.confirmPayment(booking.bookingId(), "pay_test_1").status());
+    }
+
+    @Test
+    void guestCanWithdrawOpenBidWithoutCreatingBooking() throws Exception {
+        LocalDate arrival = LocalDate.now().plusDays(19);
+        Long metro = hotels.findByName("Hotel Metro Inn").orElseThrow().getId();
+        var bid = bidService.create(1L, new CreateBid("Delhi", arrival, arrival.plusDays(1), 1, 2,
+                RoomCategory.STANDARD, new BigDecimal("1100"), List.of(sunrise(), metro)));
+        var pending = bid.offers().stream().filter(offer -> offer.status() == OfferStatus.PENDING).findFirst().orElseThrow();
+        var accepted = bid.offers().stream().filter(offer -> offer.status() == OfferStatus.ACCEPTED).findFirst().orElseThrow();
+
+        String url = "/api/v1/bids/" + bid.bidId() + "/cancel";
+        mvc.perform(post(url).header("X-User-Id", 2)).andExpect(status().isNotFound());
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(post(url).header("X-User-Id", 1)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("CANCELLED"))
+                    .andExpect(jsonPath("$.bookingId").doesNotExist())
+                    .andExpect(jsonPath("$.offers[0].status").value("CANCELLED"))
+                    .andExpect(jsonPath("$.offers[1].status").value("CANCELLED"));
+        }
+        assertEquals(1, jdbc.queryForObject("select count(*) from audit_events where subject_id = ? and action = 'BID_CANCELLED'",
+                Integer.class, bid.bidId()));
+        assertEquals(1, jdbc.queryForObject("""
+                select count(*) from partner_messages where bid_offer_id = ? and body = 'The guest withdrew this bid request.'
+                """, Integer.class, pending.offerId()));
+        assertFalse(bidService.pendingForHotel(sunrise()).stream().anyMatch(offer -> offer.offerId().equals(pending.offerId())));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> bidService.acceptOffer(1L, bid.bidId(), accepted.offerId())).getStatus());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class, () -> bidService.respond(sunrise(), pending.offerId(),
+                new HotelRespond(HotelAction.DECLINE, null, 1))).getStatus());
+    }
+
+    @Test
+    void withdrawalAndCheckoutCannotBothWin() throws Exception {
+        BidView bid = bidService.create(1L, bid(24, 1, "1300"));
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var start = new CountDownLatch(1);
+            var checkout = executor.submit(() -> attempt(start,
+                    () -> bidService.acceptOffer(1L, bid.bidId(), bid.offers().getFirst().offerId())));
+            var withdraw = executor.submit(() -> attempt(start, () -> bidService.cancel(1L, bid.bidId())));
+            start.countDown();
+            boolean held = checkout.get(10, TimeUnit.SECONDS);
+            assertNotEquals(held, withdraw.get(10, TimeUnit.SECONDS));
+            var result = bidService.get(1L, bid.bidId());
+            assertEquals(held ? BidStatus.HELD : BidStatus.CANCELLED, result.status());
+            assertEquals(held, result.bookingId() != null);
+        }
+    }
+
+    private boolean attempt(CountDownLatch start, Runnable action) throws InterruptedException {
+        start.await();
+        try {
+            action.run();
+            return true;
+        } catch (ApiException conflict) {
+            assertEquals(HttpStatus.CONFLICT, conflict.getStatus());
+            return false;
+        }
     }
 
     @Test

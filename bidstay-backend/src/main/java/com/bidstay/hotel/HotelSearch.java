@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -27,8 +28,14 @@ public class HotelSearch {
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public Details details(long hotelId) {
         var header = jdbc.query("""
-                select name, city, area, star_rating from hotels where id = ? and status = 'ACTIVE'
-                """, (rs, row) -> new Header(rs.getString(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)), hotelId)
+                select h.name, h.city, h.area, h.star_rating, p.check_in_from, p.check_out_by, p.guest_instructions
+                from hotels h left join hotel_stay_policies p on p.hotel_id = h.id
+                where h.id = ? and h.status = 'ACTIVE'
+                """, (rs, row) -> {
+            var checkIn = rs.getObject(5, LocalTime.class);
+            StayPolicy policy = checkIn == null ? null : new StayPolicy(checkIn, rs.getObject(6, LocalTime.class), rs.getString(7));
+            return new Header(rs.getString(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class), policy);
+        }, hotelId)
                 .stream().findFirst().orElseThrow(() -> ApiException.notFound("Hotel"));
         var photos = jdbc.query("""
                 select id, room_type_id, caption from hotel_media
@@ -42,13 +49,14 @@ public class HotelSearch {
                     photos.stream().filter(photo -> java.util.Objects.equals(photo.roomTypeId(), id)).toList());
         }, hotelId);
         return new Details(hotelId, header.name(), header.city(), header.area(), header.stars(),
-                photos.stream().filter(photo -> photo.roomTypeId() == null).toList(), roomTypes);
+                photos.stream().filter(photo -> photo.roomTypeId() == null).toList(), roomTypes, header.stayPolicy());
     }
 
-    public record Details(long id, String name, String city, String area, Integer starRating, List<Photo> photos, List<CatalogRoom> rooms) {}
+    public record Details(long id, String name, String city, String area, Integer starRating,
+                          List<Photo> photos, List<CatalogRoom> rooms, StayPolicy stayPolicy) {}
     public record Photo(long id, Long roomTypeId, String caption) {}
     public record CatalogRoom(long id, String name, String category, int maxGuests, BigDecimal listedPrice, List<Photo> photos) {}
-    private record Header(String name, String city, String area, Integer stars) {}
+    private record Header(String name, String city, String area, Integer stars, StayPolicy stayPolicy) {}
 
     public Page available(String city, LocalDate checkIn, LocalDate checkOut,
                           RoomCategory category, int rooms, int guests, long after) {

@@ -63,7 +63,7 @@ public class WhatsAppNotifications {
     public void guestOffer(Long guestId, Long bidId, Long offerId, int round, BigDecimal price, Instant deadline) {
         if (!enabled() || guestOfferTemplate.isBlank()) return;
         enqueueForGuest(guestId, "offer-" + offerId + "/" + round, guestOfferTemplate,
-                encode(List.of(bidId.toString(), Money.inr(price))), deadline);
+                encode(List.of(bidId.toString(), Money.inr(price))), offerId, round, deadline);
     }
 
     public void booked(Long guestId, Long hotelId, Long bookingId, Long messageId) {
@@ -71,7 +71,7 @@ public class WhatsAppNotifications {
         Instant deadline = clock.instant().plusSeconds(86_400);
         String event = "booking-" + bookingId;
         String contents = encode(List.of(bookingId.toString()));
-        enqueueForGuest(guestId, event, bookingTemplate, contents, deadline);
+        enqueueForGuest(guestId, event, bookingTemplate, contents, null, null, deadline);
         enqueueForHotel(hotelId, event, bookingTemplate, contents, messageId, null, null, deadline);
     }
 
@@ -82,13 +82,14 @@ public class WhatsAppNotifications {
                 """, consent, messageId, text, Timestamp.from(deadline));
     }
 
-    private void enqueueForGuest(Long userId, String event, String template, String contents, Instant deadline) {
+    private void enqueueForGuest(Long userId, String event, String template, String contents,
+                                 Long offerId, Integer round, Instant deadline) {
         jdbc.update("""
-                insert into whatsapp_outbox (consent_id, event_key, template_name, content, send_before)
-                select id, ?, ?, ?, ? from whatsapp_consents
+                insert into whatsapp_outbox (consent_id, event_key, template_name, content, offer_id, round, send_before)
+                select id, ?, ?, ?, ?, ?, ? from whatsapp_consents
                 where user_id = ? and hotel_id is null and enabled
                 on conflict (consent_id, event_key) do nothing
-                """, event, template, contents, Timestamp.from(deadline), userId);
+                """, event, template, contents, offerId, round, Timestamp.from(deadline), userId);
     }
 
     private void enqueueForHotel(Long hotelId, String event, String template, String contents, Long messageId,
@@ -110,6 +111,13 @@ public class WhatsAppNotifications {
             var jobs = jdbc.query("""
                     select q.id, q.event_key, q.template_name, q.content, q.attempts, u.phone,
                            (c.enabled and q.send_before > now() and
+                           (q.offer_id is null or exists (
+                              select 1 from bid_offers o join bid_requests b on b.id = o.bid_request_id
+                              where o.id = q.offer_id and o.round = q.round and b.status = 'OPEN'
+                                and b.expires_at > now()
+                                and ((c.hotel_id is null and o.status in ('ACCEPTED', 'COUNTERED'))
+                                  or (c.hotel_id is not null and o.status = 'PENDING'))
+                           )) and
                            ((c.hotel_id is null and u.role = 'GUEST') or (u.role = 'HOTEL_STAFF' and exists
                            (select 1 from hotel_staff h where h.user_id = c.user_id and h.hotel_id = c.hotel_id)))) as allowed
                     from whatsapp_outbox q join whatsapp_consents c on c.id = q.consent_id join users u on u.id = c.user_id

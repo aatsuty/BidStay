@@ -1,14 +1,15 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, CreditCard, Hotel, MapPin, Printer } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, CreditCard, Hotel, Images, MapPin, Printer } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { countdown, fmtDate, useNow } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import { useGuest } from './GuestShell';
+import HotelDetails from './HotelDetails';
 import WhatsAppPreference from '../WhatsAppPreference';
-import { indiaDateTime, offerReady, refundLabel, rupees, type Bid, type Booking } from './models';
+import { indiaDateTime, offerReady, refundLabel, rupees, type Bid, type Booking, type Offer } from './models';
 
 function TripPage({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
   return (
@@ -46,7 +47,7 @@ export function Trips() {
       <div className="guest-trip-list">{trips.data?.map((bid) => (
         <Link className="guest-trip-row" key={bid.bidId} to={bid.bookingId ? '/checkout/' + bid.bookingId : '/offers/' + bid.bidId}>
           <span className="guest-hotel-icon"><CalendarDays size={21} /></span>
-          <span><strong>{fmtDate(bid.checkIn)} – {fmtDate(bid.checkOut)}</strong><small>{bid.rooms} {bid.rooms === 1 ? 'room' : 'rooms'} · {rupees.format(bid.pricePerNight)} per room per night</small></span>
+          <span><strong>{fmtDate(bid.checkIn)} – {fmtDate(bid.checkOut)}</strong><small>{bid.rooms} {bid.rooms === 1 ? 'room' : 'rooms'} · Bid {rupees.format(bid.pricePerNight)} per room per night</small></span>
           <span className="guest-state">{statusLabel(bid.status)}</span>
           <ArrowRight size={18} />
         </Link>
@@ -64,6 +65,7 @@ export function Offers() {
   const qc = useQueryClient();
   const now = useNow();
   const [raiseTo, setRaiseTo] = useState('');
+  const [details, setDetails] = useState<Offer>();
   const key = ['guest-bid', cacheKey, bidId];
   const result = useQuery({
     queryKey: key, enabled: signedIn && !!bidId,
@@ -72,40 +74,79 @@ export function Offers() {
   });
   const raise = useMutation({
     mutationFn: () => api.post<Bid>('/api/v1/bids/' + bidId + '/raise', { pricePerNight: Number(raiseTo) }),
-    onSuccess: (bid) => { qc.setQueryData(key, bid); setRaiseTo(''); },
+    onSuccess: (bid) => {
+      qc.setQueryData(key, bid);
+      void qc.invalidateQueries({ queryKey: ['guest-trips', cacheKey] });
+      setRaiseTo('');
+    },
   });
   const accept = useMutation({
     mutationFn: (offerId: number) => api.post<Booking>(`/api/v1/bids/${bidId}/offers/${offerId}/accept`),
     onSuccess: (booking) => { void qc.invalidateQueries({ queryKey: ['guest-trips'] }); navigate('/checkout/' + booking.bookingId); },
   });
+  const withdraw = useMutation({
+    mutationFn: () => api.post<Bid>(`/api/v1/bids/${bidId}/cancel`),
+    onSuccess: (bid) => {
+      qc.setQueryData(key, bid);
+      void qc.invalidateQueries({ queryKey: ['guest-trips', cacheKey] });
+    },
+  });
   const bid = result.data;
   const time = bid && bid.status === 'OPEN' ? countdown(bid.expiresAt, now) : null;
+  const busy = accept.isPending || raise.isPending || withdraw.isPending;
   const sorted = [...(bid?.offers ?? [])].sort((left, right) =>
     Number(offerReady(right)) - Number(offerReady(left)) || (left.totalForStay ?? Infinity) - (right.totalForStay ?? Infinity));
+  const bookable = sorted.filter(offerReady);
+  const lowest = bookable[0]?.totalForStay;
+  const pending = sorted.filter((offer) => offer.status === 'PENDING'
+    && (!offer.expiresAt || Date.parse(offer.expiresAt) > now)).length;
 
   return <TripPage title="Your hotel offers" sub={bid ? `${fmtDate(bid.checkIn)} – ${fmtDate(bid.checkOut)} · ${bid.rooms} ${bid.rooms === 1 ? 'room' : 'rooms'}` : undefined}>
     {!signedIn ? <SignInPrompt /> : <>
-      <ErrorBox error={result.error || accept.error || raise.error} />
+      <ErrorBox error={result.error || accept.error || raise.error || withdraw.error} />
       {result.isPending && <p role="status">Loading offers…</p>}
       {bid && <>
         <div className="guest-offer-summary">
           <div><small>Your bid per room per night</small><strong>{rupees.format(bid.pricePerNight)}</strong></div>
           <div><small>Round</small><strong>{bid.round} / {bid.maxRounds}</strong></div>
-          <div><small>Bid status</small><strong>{time ? <><Clock3 size={18} /> {time} left</> : statusLabel(bid.status)}</strong></div>
+          <div><small>Bid status</small><strong>{time ? <><Clock3 size={18} /> {time} left</> : statusLabel(bid.status === 'OPEN' ? 'EXPIRED' : bid.status)}</strong></div>
         </div>
         {bid.freeCancelUntil && Date.parse(bid.freeCancelUntil) > now && <p className="guest-trip-description">Free cancellation until {indiaDateTime(bid.freeCancelUntil)}.</p>}
         {bid.bookingId && <Link className="guest-cta" to={'/checkout/' + bid.bookingId}>View booking <ArrowRight size={16} /></Link>}
+        {time && sorted.length > 0 && <div className="guest-reply-progress">
+          <p role="status">{bookable.length} {bookable.length === 1 ? 'offer' : 'offers'} ready · {pending} {pending === 1 ? 'hotel' : 'hotels'} still reviewing</p>
+          <progress aria-label="Hotel requests resolved" value={sorted.length - pending} max={sorted.length} />
+        </div>}
         <div className="guest-trip-list">
           {sorted.map((offer) => (
             <article className="guest-offer-row" key={offer.offerId}>
               <span className="guest-hotel-icon"><Hotel size={22} /></span>
-              <div><h2>{offer.hotelName}</h2><p><MapPin size={14} /> {offer.area}</p><span className={offerReady(offer) ? 'guest-state available' : 'guest-state'}>{statusLabel(offer.status)}</span></div>
-              <div className="guest-offer-amount">{offer.totalForStay != null && <><strong>{rupees.format(offer.totalForStay)}</strong><small>Full stay total</small></>}</div>
-              {time && offerReady(offer) && <button className="guest-cta" disabled={accept.isPending} onClick={() => accept.mutate(offer.offerId)}>Choose offer <ArrowRight size={16} /></button>}
+              <div><h2>{offer.hotelName}</h2><p><MapPin size={14} /> {offer.area}</p>
+                <span className={offerReady(offer) ? 'guest-state available' : 'guest-state'}>
+                  {statusLabel(offer.status === 'PENDING' && offer.expiresAt && Date.parse(offer.expiresAt) <= now ? 'EXPIRED' : offer.status)}
+                </span></div>
+              <div className="guest-offer-amount">{offer.totalForStay != null && <><strong>{rupees.format(offer.totalForStay)}</strong>
+                <small>{time && offerReady(offer) && bookable.length > 1 && offer.totalForStay === lowest ? 'Lowest stay total' : 'Full stay total'}</small></>}</div>
+              <div className="guest-offer-actions">
+                <button type="button" className="guest-quiet" onClick={() => setDetails(offer)}
+                  aria-label={`Photos and rooms at ${offer.hotelName}`}><Images size={16} /> Photos and rooms</button>
+                {time && offerReady(offer) && <button className="guest-cta" disabled={busy} onClick={() => accept.mutate(offer.offerId)}>Choose offer <ArrowRight size={16} /></button>}
+              </div>
             </article>
           ))}
         </div>
-        {time && bid.round < bid.maxRounds && <form className="guest-raise" onSubmit={(event) => { event.preventDefault(); raise.mutate(); }}><label>Raise your rate per room per night<input type="number" min={bid.pricePerNight + 0.01} max={100_000} step="0.01" required value={raiseTo} onChange={(event) => setRaiseTo(event.target.value)} /></label><button className="guest-quiet" disabled={raise.isPending}>Send higher bid <ArrowRight size={16} /></button></form>}
+        {time && bid.round < bid.maxRounds && bid.pricePerNight < 100_000 && <form className="guest-raise" onSubmit={(event) => { event.preventDefault(); raise.mutate(); }}>
+          <label>Raise your rate per room per night<input type="number" min={(bid.pricePerNight + 0.01).toFixed(2)} max={100_000}
+            step="0.01" required value={raiseTo} onChange={(event) => setRaiseTo(event.target.value)} /></label>
+          <div className="guest-raise-choices">{[100, 200, 300].filter((amount) => bid.pricePerNight + amount <= 100_000).map((amount) =>
+            <button key={amount} type="button" className="guest-quiet" onClick={() => setRaiseTo((bid.pricePerNight + amount).toFixed(2))}>+{rupees.format(amount)}</button>)}</div>
+          <button className="guest-quiet" disabled={busy}>Send higher bid <ArrowRight size={16} /></button>
+        </form>}
+        {time && <button type="button" className="guest-quiet guest-withdraw" disabled={busy} onClick={() => {
+          if (window.confirm('Withdraw this bid? Hotels will no longer be able to respond.')) withdraw.mutate();
+        }}>Withdraw bid</button>}
+        {bid.status === 'CANCELLED' && !bid.bookingId && <p role="status" className="guest-trip-description guest-withdraw">You withdrew this bid.</p>}
+        {details && <HotelDetails key={details.hotelId} id={details.hotelId} name={details.hotelName} close={() => setDetails(undefined)} />}
       </>}
     </>}
   </TripPage>;

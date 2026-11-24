@@ -66,6 +66,9 @@ class RazorpayIT {
         mvc.perform(put(policy).header("X-User-Id", 3).contentType(MediaType.APPLICATION_JSON)
                         .content(original.replace("14:00", "15:00").replace("Bring a photo ID.", "Use the lobby entrance.")))
                 .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/hotels/1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stayPolicy.checkInFrom").value("15:00"))
+                .andExpect(jsonPath("$.address").doesNotExist()).andExpect(jsonPath("$.rooms[0].minPrice").doesNotExist());
         mvc.perform(get("/api/v1/bookings/{id}", id).header("X-User-Id", 1))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalAmount").value(3000))
                 .andExpect(jsonPath("$.pricePerNight").value(1500))

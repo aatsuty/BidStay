@@ -1,6 +1,7 @@
 package com.bidstay.bidding;
 
 import com.bidstay.bidding.BidDtos.*;
+import com.bidstay.audit.AuditTrail;
 import com.bidstay.whatsapp.WhatsAppNotifications;
 import com.bidstay.alerts.GuestAlerts;
 import com.bidstay.booking.Booking;
@@ -51,6 +52,7 @@ public class BidService {
     private final Clock clock;
     private final WhatsAppNotifications whatsapp;
     private final GuestAlerts alerts;
+    private final AuditTrail audit;
 
     // ------------------------------------------------------------------ guest side
 
@@ -109,8 +111,8 @@ public class BidService {
 
     @Transactional
     public BidView raise(Long guestId, Long bidId, BigDecimal newPrice) {
+        BidRequest bid = loadOpenOwned(guestId, bidId);
         Instant now = clock.instant();
-        BidRequest bid = loadOpenOwned(guestId, bidId, now);
         if (bid.getRound() >= props.maxRounds()) throw ApiException.invalid("Maximum number of raises reached");
         if (newPrice.compareTo(bid.getPricePerNight()) <= 0) throw ApiException.invalid("New price must be higher than your current bid");
 
@@ -131,8 +133,21 @@ public class BidService {
     }
 
     @Transactional
+    public BidView cancel(Long guestId, Long bidId) {
+        BidRequest bid = lockOwned(guestId, bidId);
+        if (bid.getStatus() == BidStatus.CANCELLED) return view(bid);
+        requireOpen(bid, clock.instant());
+        bid.setStatus(BidStatus.CANCELLED);
+        for (BidOffer offer : offers.findByBidRequestIdAndStatusIn(bidId, OfferStatus.LIVE)) {
+            closeOffer(offer, "The guest withdrew this bid request.");
+        }
+        audit.record(guestId, AuditTrail.Action.BID_CANCELLED, bidId, null);
+        return view(bid);
+    }
+
+    @Transactional
     public BookingView acceptOffer(Long guestId, Long bidId, Long offerId) {
-        BidRequest bid = loadOpenOwned(guestId, bidId, clock.instant());
+        BidRequest bid = loadOpenOwned(guestId, bidId);
         BidOffer chosen = offers.findById(offerId)
                 .filter(o -> o.getBidRequestId().equals(bidId))
                 .orElseThrow(() -> ApiException.notFound("Offer"));
@@ -146,11 +161,7 @@ public class BidService {
         chosen.setStatus(OfferStatus.SELECTED);
         for (BidOffer other : offers.findByBidRequestIdAndStatusIn(bidId, OfferStatus.LIVE)) {
             if (!other.getId().equals(chosen.getId())) {
-                if (other.getStatus() == OfferStatus.PENDING) {
-                    chat.bot(other.getHotelId(), PartnerMessage.Kind.SYSTEM,
-                            "The guest chose another offer, so this bid request is closed. No reply needed.", other.getId());
-                }
-                other.setStatus(OfferStatus.CANCELLED);
+                closeOffer(other, "The guest chose another offer, so this bid request is closed. No reply needed.");
             }
         }
         bid.setStatus(BidStatus.HELD);
@@ -159,9 +170,7 @@ public class BidService {
 
     @Transactional(readOnly = true)
     public BidView get(Long guestId, Long bidId) {
-        BidRequest bid = bids.findById(bidId).filter(b -> b.getGuestId().equals(guestId))
-                .orElseThrow(() -> ApiException.notFound("Bid"));
-        return view(bid);
+        return view(loadOwned(guestId, bidId));
     }
 
     @Transactional(readOnly = true)
@@ -369,13 +378,33 @@ public class BidService {
         }
     }
 
-    private BidRequest loadOpenOwned(Long guestId, Long bidId, Instant now) {
-        BidRequest bid = bids.findById(bidId).filter(b -> b.getGuestId().equals(guestId))
+    private void closeOffer(BidOffer offer, String reason) {
+        if (offer.getStatus() == OfferStatus.PENDING) {
+            chat.bot(offer.getHotelId(), PartnerMessage.Kind.SYSTEM, reason, offer.getId());
+        }
+        offer.setStatus(OfferStatus.CANCELLED);
+        offer.setExpiresAt(null);
+    }
+
+    private BidRequest loadOwned(Long guestId, Long bidId) {
+        return bids.findById(bidId).filter(b -> b.getGuestId().equals(guestId))
                 .orElseThrow(() -> ApiException.notFound("Bid"));
+    }
+
+    private BidRequest loadOpenOwned(Long guestId, Long bidId) {
+        BidRequest bid = lockOwned(guestId, bidId);
+        requireOpen(bid, clock.instant());
+        return bid;
+    }
+
+    private BidRequest lockOwned(Long guestId, Long bidId) {
+        return bids.findByIdAndGuestId(bidId, guestId).orElseThrow(() -> ApiException.notFound("Bid"));
+    }
+
+    private void requireOpen(BidRequest bid, Instant now) {
         if (bid.getStatus() != BidStatus.OPEN || !bid.getExpiresAt().isAfter(now)) {
             throw ApiException.conflict("This bid is closed");
         }
-        return bid;
     }
 
     private BidView view(BidRequest bid) {

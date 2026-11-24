@@ -184,8 +184,8 @@ export default function Search() {
           <p className="guest-price-note"><ShieldCheck size={17} /> You pay only if you choose an offer and complete checkout.</p>
         </aside>
       </section>
-      {details && <HotelDetails id={details.id} name={details.name} selected={selected.has(details.id)}
-        toggle={() => toggle(details.id)} close={() => setDetails(undefined)} />}
+      {details && <HotelDetails id={details.id} name={details.name}
+        selection={{ selected: selected.has(details.id), toggle: () => toggle(details.id) }} close={() => setDetails(undefined)} />}
       <section className="guest-how" aria-label="How bidding works">
         <div><span><SearchIcon size={19} /></span><h3>Choose your stay</h3><p>Find hotels with space for your dates.</p></div>
         <div><span><IndianRupee size={19} /></span><h3>Send one bid</h3><p>Selected hotels can accept or counter your price.</p></div>

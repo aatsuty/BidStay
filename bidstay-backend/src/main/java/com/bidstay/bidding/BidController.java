@@ -41,6 +41,11 @@ public class BidController {
         return service.raise(userId, bidId, body.pricePerNight());
     }
 
+    @PostMapping("/{bidId}/cancel")
+    public BidView cancel(@CallerId(guestOnly = true) Long userId, @PathVariable Long bidId) {
+        return service.cancel(userId, bidId);
+    }
+
     @PostMapping("/{bidId}/offers/{offerId}/accept")
     public BookingView accept(@CallerId(guestOnly = true) Long userId, @PathVariable Long bidId, @PathVariable Long offerId) {
         return service.acceptOffer(userId, bidId, offerId);

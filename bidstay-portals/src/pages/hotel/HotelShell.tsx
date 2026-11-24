@@ -7,6 +7,7 @@ import type { HotelOffer, MyHotel } from '../../lib/types';
 import { HotelStatusBadge, Loading } from '../../components/ui';
 import { useMe } from '../../App';
 import { HotelContext } from './HotelContext';
+import Register from './Register';
 
 const KEY = 'bidstay.portal.hotel';
 
@@ -38,10 +39,12 @@ export default function HotelShell() {
     refetchInterval: 5000,
   });
 
-  if (hotelsQ.isLoading) return <div className="main"><Loading /></div>;
-  if (!hotel) return loc.pathname.endsWith('/register') ? <RegisterOnly /> : <Navigate to="/hotel/register" replace />;
+  const select = (id: number) => { localStorage.setItem(KEY, String(id)); setPicked(id); };
 
-  const select = (id: number) => { localStorage.setItem(KEY, String(id)); setPicked(id); nav('/hotel/requests'); };
+  if (hotelsQ.isLoading) return <div className="main"><Loading /></div>;
+  if (!hotel) return loc.pathname.endsWith('/register')
+    ? <div className="main"><Register first onRegistered={select} /></div>
+    : <Navigate to="/hotel/register" replace />;
   const pending = offersQ.data?.length ?? 0;
   const links: [string, string, number?][] = [
     ['requests', '💬 Requests', pending], ['rates', '₹ Rates & rules'], ['availability', '📅 Availability'],
@@ -61,7 +64,10 @@ export default function HotelShell() {
           ))}
           <div className="foot">
             <div className="small" style={{ marginBottom: 6, color: '#94a3b8' }}>Hotel</div>
-            <select className="input" value={hotel.id} onChange={(e) => select(Number(e.target.value))}>
+            <select className="input" aria-label="Active hotel" value={hotel.id} onChange={(e) => {
+              select(Number(e.target.value));
+              nav('/hotel/requests');
+            }}>
               {hotels.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
             </select>
             <div style={{ marginTop: 8 }}><NavLink to="register" className="small" style={{ color: '#a5b4fc' }}>+ Register another hotel</NavLink></div>
@@ -83,10 +89,4 @@ export default function HotelShell() {
       </div>
     </HotelContext.Provider>
   );
-}
-
-// A new owner with no hotel yet only sees the registration form.
-import Register from './Register';
-function RegisterOnly() {
-  return <div className="main"><Register first /></div>;
 }

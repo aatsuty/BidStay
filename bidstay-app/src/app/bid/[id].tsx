@@ -16,10 +16,12 @@ export default function BidScreen() {
   const qc = useQueryClient();
   const now = useNow();
   const [raiseTo, setRaiseTo] = useState('');
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const bidKey = ['bid', id, cacheKey];
 
   // Poll while hotels may still be replying. (Later: WebSocket/push instead of polling.)
   const bidQuery = useQuery({
-    queryKey: ['bid', id, cacheKey],
+    queryKey: bidKey,
     queryFn: () => api.get<BidView>(`/api/v1/bids/${id}`),
     refetchInterval: (q) => (q.state.data?.status === 'OPEN' ? 4000 : false),
   });
@@ -28,8 +30,8 @@ export default function BidScreen() {
   const raise = useMutation({
     mutationFn: (price: number) => api.post<BidView>(`/api/v1/bids/${id}/raise`, { pricePerNight: price }),
     onSuccess: (data) => {
-      qc.setQueryData(['bid', id, cacheKey], data);
-      qc.invalidateQueries({ queryKey: ['bids'] });
+      qc.setQueryData(bidKey, data);
+      void qc.invalidateQueries({ queryKey: ['bids'] });
       setRaiseTo('');
     },
   });
@@ -37,16 +39,25 @@ export default function BidScreen() {
   const accept = useMutation({
     mutationFn: (offerId: number) => api.post<BookingView>(`/api/v1/bids/${id}/offers/${offerId}/accept`),
     onSuccess: (booking) => {
-      qc.invalidateQueries({ queryKey: ['bid', id, cacheKey] });
+      qc.invalidateQueries({ queryKey: bidKey });
       qc.invalidateQueries({ queryKey: ['bids'] });
       router.replace(`/booking/${booking.bookingId}`);
+    },
+  });
+  const withdraw = useMutation({
+    mutationFn: () => api.post<BidView>(`/api/v1/bids/${id}/cancel`),
+    onSuccess: (data) => {
+      qc.setQueryData(bidKey, data);
+      void qc.invalidateQueries({ queryKey: ['bids'] });
+      setConfirmWithdraw(false);
     },
   });
 
   if (bidQuery.isLoading) return <Loading />;
   if (!bid) return <ErrorText message={errorMessage(bidQuery.error)} />;
 
-  const open = bid.status === 'OPEN';
+  const open = bid.status === 'OPEN' && Date.parse(bid.expiresAt) > now;
+  const busy = accept.isPending || raise.isPending || withdraw.isPending;
   const nights = nightsBetween(bid.checkIn, bid.checkOut);
   const raiseValue = Number(raiseTo);
   const canRaise = open && bid.round < bid.maxRounds;
@@ -83,6 +94,7 @@ export default function BidScreen() {
           offer={o}
           now={now}
           canBook={open}
+          disabled={busy}
           booking={accept.isPending && accept.variables === o.offerId}
           onBook={() => accept.mutate(o.offerId)}
         />
@@ -102,15 +114,26 @@ export default function BidScreen() {
             keyboardType="numeric"
             placeholder={String(Math.round(bid.pricePerNight * 1.1))}
           />
-          <Button title="Raise bid" onPress={() => raise.mutate(raiseValue)} disabled={!raiseValid} loading={raise.isPending} />
+          <Button title="Raise bid" onPress={() => raise.mutate(raiseValue)} disabled={!raiseValid || busy} loading={raise.isPending} />
         </Card>
       )}
       {open && !canRaise && <Text style={{ color: colors.muted, textAlign: 'center' }}>You&apos;ve used all {bid.maxRounds} rounds. Pick an offer above.</Text>}
+      {open && <View style={{ gap: 8, marginTop: 10 }}>
+        <ErrorText message={withdraw.error ? errorMessage(withdraw.error) : null} />
+        {confirmWithdraw ? <>
+          <Text style={{ color: colors.text }}>Withdraw this bid? Hotels will no longer be able to respond.</Text>
+          <Button title="Confirm withdrawal" variant="ghost" disabled={busy} loading={withdraw.isPending} onPress={() => withdraw.mutate()} />
+          <Button title="Keep bid open" variant="ghost" disabled={busy} onPress={() => setConfirmWithdraw(false)} />
+        </> : <Button title="Withdraw bid" variant="ghost" disabled={busy} onPress={() => setConfirmWithdraw(true)} />}
+      </View>}
+      {bid.status === 'CANCELLED' && !bid.bookingId && <Text style={{ color: colors.muted }}>You withdrew this bid.</Text>}
     </ScrollView>
   );
 }
 
-function OfferCard({ offer, now, canBook, booking, onBook }: { offer: OfferView; now: number; canBook: boolean; booking: boolean; onBook: () => void }) {
+function OfferCard({ offer, now, canBook, disabled, booking, onBook }: {
+  offer: OfferView; now: number; canBook: boolean; disabled: boolean; booking: boolean; onBook: () => void;
+}) {
   const left = offer.status === 'PENDING' ? countdown(offer.expiresAt, now) : null;
   const bookable = canBook && (offer.status === 'ACCEPTED' || offer.status === 'COUNTERED');
   const dim = offer.status === 'UNAVAILABLE' || offer.status === 'EXPIRED' || offer.status === 'CANCELLED' || offer.status === 'DECLINED';
@@ -135,7 +158,7 @@ function OfferCard({ offer, now, canBook, booking, onBook }: { offer: OfferView;
       {offer.status === 'PENDING' && (
         <Text style={{ color: colors.muted, marginTop: 8 }}>{left ? `Hotel replies within ${left}` : 'Time is up, updating…'}</Text>
       )}
-      {bookable && <Button title={`Book at ${inr(offer.pricePerNight)}`} onPress={onBook} loading={booking} style={{ marginTop: 12 }} />}
+      {bookable && <Button title={`Book at ${inr(offer.pricePerNight)}`} onPress={onBook} disabled={disabled} loading={booking} style={{ marginTop: 12 }} />}
     </Card>
   );
 }
