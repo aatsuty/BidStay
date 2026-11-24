@@ -11,18 +11,27 @@ import com.bidstay.common.ApiException;
 import com.bidstay.hotel.HotelRepository;
 import com.bidstay.hotel.HotelStatus;
 import com.bidstay.hotel.RoomCategory;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationState;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -44,6 +53,36 @@ class BidFlowIT {
     @Autowired BidService bidService;
     @Autowired BookingService bookingService;
     @Autowired HotelRepository hotels;
+    @Autowired Flyway flyway;
+
+    @Test
+    void upgradesPreviouslySeededDevDatabase(@TempDir Path originalMigrations) throws IOException {
+        for (String script : List.of("V1__core_schema.sql", "V2__partner_admin.sql")) {
+            try (var stream = new ClassPathResource("db/migration/" + script).getInputStream()) {
+                Files.copy(stream, originalMigrations.resolve(script));
+            }
+        }
+        String schema = "existing_dev";
+        Flyway original = Flyway.configure()
+                .configuration(flyway.getConfiguration())
+                .defaultSchema(schema)
+                .schemas(schema)
+                .locations("filesystem:" + originalMigrations, "classpath:db/seed")
+                .load();
+        assertEquals(3, original.migrate().migrationsExecuted);
+        assertEquals(MigrationVersion.fromVersion("1000"), original.info().current().getVersion());
+
+        Flyway upgraded = Flyway.configure()
+                .configuration(flyway.getConfiguration())
+                .defaultSchema(schema)
+                .schemas(schema)
+                .load();
+        assertEquals(1, upgraded.migrate().migrationsExecuted);
+        assertTrue(Arrays.stream(upgraded.info().applied())
+                .anyMatch(migration -> MigrationVersion.fromVersion("3").equals(migration.getVersion())
+                        && migration.getState() == MigrationState.OUT_OF_ORDER));
+        upgraded.validate();
+    }
 
     Long sunrise() {
         return hotels.findByName("Hotel Sunrise Paharganj").orElseThrow().getId();
