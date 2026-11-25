@@ -1,3 +1,4 @@
+import RecordCell from '../../components/RecordCell';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../lib/api';
@@ -28,19 +29,19 @@ export default function Bookings() {
       {valid && q.data && (
         <div className="card">
           {!q.data.length ? <p className="muted">{bookingId ? 'This confirmed booking was not found for this property.' : 'No paid bookings yet.'}</p> : (
-            <div className="table-wrap"><table>
-              <thead><tr><th>#</th><th>Guest</th><th>Room</th><th>Stay</th><th className="right">Rate</th><th className="right">Total</th><th className="right">BidStay fee</th><th className="right">Your payout</th></tr></thead>
-              <tbody>{q.data.map((b) => (
-                <tr key={b.bookingId}>
-                  <td>{b.bookingId}</td>
-                  <td><b>{b.guestName}</b><div className="muted small">+91 {b.guestPhone}</div></td>
-                  <td>{b.roomType}<div className="muted small">{b.rooms} room{b.rooms > 1 ? 's' : ''}</div></td>
-                  <td>{b.arrival && b.departure ? `${fmtDate(b.checkIn)} · ${fmtIndiaTime(b.arrival)}–${fmtIndiaTime(b.departure)} IST`
-                    : `${fmtDate(b.checkIn)} → ${fmtDate(b.checkOut)}`}</td>
-                  <td className="right">{b.hourlyRate ? `${inr(b.hourlyRate)} / stay` : `${inr(b.pricePerNight)} / night`}</td><td className="right">{inr(b.total)}</td>
-                  <td className="right muted">{inr(b.commission)}</td><td className="right bold">{inr(b.payout)}</td>
+            <div className="table-wrap"><table className="record-table" role="table">
+              <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">#</th><th role="columnheader" scope="col">Guest</th><th role="columnheader" scope="col">Room</th><th role="columnheader" scope="col">Stay</th><th role="columnheader" scope="col" className="right">Rate</th><th role="columnheader" scope="col" className="right">Total</th><th role="columnheader" scope="col" className="right">BidStay fee</th><th role="columnheader" scope="col" className="right">Your payout</th></tr></thead>
+              <tbody role="rowgroup">{q.data.map((b) => (
+                <tr role="row" key={b.bookingId}>
+                  <RecordCell label="Booking ID">{b.bookingId}</RecordCell>
+                  <RecordCell label="Guest"><b>{b.guestName}</b><div className="muted small">+91 {b.guestPhone}</div></RecordCell>
+                  <RecordCell label="Room">{b.roomType}<div className="muted small">{b.rooms} room{b.rooms > 1 ? 's' : ''}</div></RecordCell>
+                  <RecordCell label="Stay">{b.arrival && b.departure ? `${fmtDate(b.checkIn)} · ${fmtIndiaTime(b.arrival)}–${fmtIndiaTime(b.departure)} IST`
+                    : `${fmtDate(b.checkIn)} → ${fmtDate(b.checkOut)}`}</RecordCell>
+                  <RecordCell label="Rate" className="right">{b.hourlyRate ? `${inr(b.hourlyRate)} / stay` : `${inr(b.pricePerNight)} / night`}</RecordCell><RecordCell label="Total" className="right">{inr(b.total)}</RecordCell>
+                  <RecordCell label="BidStay fee" className="right muted">{inr(b.commission)}</RecordCell><RecordCell label="Your payout" className="right bold">{inr(b.payout)}</RecordCell>
                 </tr>))}</tbody>
-              <tfoot><tr><td colSpan={7} className="right muted">Total payout</td><td className="right bold">{inr(total)}</td></tr></tfoot>
+              <tfoot role="rowgroup"><tr role="row"><td role="cell" colSpan={7} className="right muted">Total payout</td><td role="cell" className="right bold">{inr(total)}</td></tr></tfoot>
             </table></div>)}
         </div>)}
     </>

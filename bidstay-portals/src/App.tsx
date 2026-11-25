@@ -1,35 +1,40 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from './lib/api';
 import { useSession } from './lib/session';
 import type { Me, Role } from './lib/types';
-import Login from './pages/Login';
-import HotelShell from './pages/hotel/HotelShell';
-import Requests from './pages/hotel/Requests';
-import Rates from './pages/hotel/Rates';
-import Availability from './pages/hotel/Availability';
-import Bookings from './pages/hotel/Bookings';
-import Insights from './pages/hotel/Insights';
-import Profile from './pages/hotel/Profile';
-import Register from './pages/hotel/Register';
-import AdminShell from './pages/admin/AdminShell';
-import Overview from './pages/admin/Overview';
-import AuditLog from './pages/admin/AuditLog';
-import AdminHotels from './pages/admin/AdminHotels';
-import AdminBookings from './pages/admin/AdminBookings';
-import AdminBids from './pages/admin/AdminBids';
 import { Loading } from './components/ui';
-import ListingPhotos from './pages/hotel/ListingPhotos';
-import ListingMediaReview from './pages/admin/ListingMediaReview';
 import GuestShell from './pages/guest/GuestShell';
 import Search from './pages/guest/Search';
-import Alerts from './pages/guest/Alerts';
-import HourlySearch from './pages/guest/HourlySearch';
-import Reviews from './pages/admin/Reviews';
-import Market from './pages/admin/Market';
-import { Checkout, Offers, Trips } from './pages/guest/TripFlow';
-import BookingTicket from './pages/guest/BookingTicket';
+
+import { PortalAccountPage } from './components/PortalLayout';
+
+const Login = lazy(() => import('./pages/Login'));
+const HotelShell = lazy(() => import('./pages/hotel/HotelShell'));
+const Requests = lazy(() => import('./pages/hotel/Requests'));
+const Rates = lazy(() => import('./pages/hotel/Rates'));
+const Availability = lazy(() => import('./pages/hotel/Availability'));
+const Bookings = lazy(() => import('./pages/hotel/Bookings'));
+const Insights = lazy(() => import('./pages/hotel/Insights'));
+const Profile = lazy(() => import('./pages/hotel/Profile'));
+const Register = lazy(() => import('./pages/hotel/Register'));
+const AdminShell = lazy(() => import('./pages/admin/AdminShell'));
+const Overview = lazy(() => import('./pages/admin/Overview'));
+const AuditLog = lazy(() => import('./pages/admin/AuditLog'));
+const AdminHotels = lazy(() => import('./pages/admin/AdminHotels'));
+const AdminBookings = lazy(() => import('./pages/admin/AdminBookings'));
+const AdminBids = lazy(() => import('./pages/admin/AdminBids'));
+const ListingPhotos = lazy(() => import('./pages/hotel/ListingPhotos'));
+const ListingMediaReview = lazy(() => import('./pages/admin/ListingMediaReview'));
+const Alerts = lazy(() => import('./pages/guest/Alerts'));
+const HourlySearch = lazy(() => import('./pages/guest/HourlySearch'));
+const Reviews = lazy(() => import('./pages/admin/Reviews'));
+const Market = lazy(() => import('./pages/admin/Market'));
+const BookingTicket = lazy(() => import('./pages/guest/BookingTicket'));
+const Checkout = lazy(() => import('./pages/guest/TripFlow').then((pages) => ({ default: pages.Checkout })));
+const Offers = lazy(() => import('./pages/guest/TripFlow').then((pages) => ({ default: pages.Offers })));
+const Trips = lazy(() => import('./pages/guest/TripFlow').then((pages) => ({ default: pages.Trips })));
 
 export function useMe() {
   const api = useApi();
@@ -59,39 +64,43 @@ export default function App() {
     window.ReactNativeWebView?.postMessage(JSON.stringify({ action: 'history', canGoBack: window.history.state?.idx > 0 }));
   }, [location]);
   return (
-    <Routes>
-      <Route element={<GuestShell />}>
-        <Route index element={<Search />} />
-        <Route path="/hourly" element={<HourlySearch />} />
-        <Route path="/offers/:bidId" element={<Offers />} />
-        <Route path="/checkout/:bookingId" element={<Checkout />} />
-        <Route path="/ticket/:bookingId" element={<BookingTicket />} />
-        <Route path="/trips" element={<Trips />} />
-        <Route path="/alerts" element={<Alerts />} />
-      </Route>
-      <Route path="/login" element={<Login />} />
-      <Route path="/hotel" element={<Guard role="HOTEL_STAFF"><HotelShell /></Guard>}>
-        <Route index element={<Navigate to="requests" replace />} />
-        <Route path="requests" element={<Requests />} />
-        <Route path="rates" element={<Rates />} />
-        <Route path="availability" element={<Availability />} />
-        <Route path="bookings" element={<Bookings />} />
-        <Route path="insights" element={<Insights />} />
-        <Route path="profile" element={<Profile />} />
-        <Route path="photos" element={<ListingPhotos />} />
-        <Route path="register" element={<Register />} />
-      </Route>
-      <Route path="/admin" element={<Guard role="ADMIN"><AdminShell /></Guard>}>
-        <Route index element={<Overview />} />
-        <Route path="hotels" element={<AdminHotels />} />
-        <Route path="audit" element={<AuditLog />} />
-        <Route path="photos" element={<ListingMediaReview />} />
-        <Route path="bookings" element={<AdminBookings />} />
-        <Route path="bids" element={<AdminBids />} />
-        <Route path="reviews" element={<Reviews />} />
-        <Route path="market" element={<Market />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<main className="main"><Loading /></main>}>
+      <Routes>
+        <Route element={<GuestShell />}>
+          <Route index element={<Search />} />
+          <Route path="/hourly" element={<HourlySearch />} />
+          <Route path="/offers/:bidId" element={<Offers />} />
+          <Route path="/checkout/:bookingId" element={<Checkout />} />
+          <Route path="/ticket/:bookingId" element={<BookingTicket />} />
+          <Route path="/trips" element={<Trips />} />
+          <Route path="/alerts" element={<Alerts />} />
+        </Route>
+        <Route path="/login" element={<Login />} />
+        <Route path="/hotel" element={<Guard role="HOTEL_STAFF"><HotelShell /></Guard>}>
+          <Route index element={<Navigate to="requests" replace />} />
+          <Route path="requests" element={<Requests />} />
+          <Route path="rates" element={<Rates />} />
+          <Route path="availability" element={<Availability />} />
+          <Route path="bookings" element={<Bookings />} />
+          <Route path="insights" element={<Insights />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="photos" element={<ListingPhotos />} />
+          <Route path="register" element={<Register />} />
+          <Route path="account" element={<PortalAccountPage />} />
+        </Route>
+        <Route path="/admin" element={<Guard role="ADMIN"><AdminShell /></Guard>}>
+          <Route index element={<Overview />} />
+          <Route path="hotels" element={<AdminHotels />} />
+          <Route path="audit" element={<AuditLog />} />
+          <Route path="photos" element={<ListingMediaReview />} />
+          <Route path="bookings" element={<AdminBookings />} />
+          <Route path="bids" element={<AdminBids />} />
+          <Route path="reviews" element={<Reviews />} />
+          <Route path="market" element={<Market />} />
+          <Route path="account" element={<PortalAccountPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

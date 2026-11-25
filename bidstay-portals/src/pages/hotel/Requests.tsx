@@ -70,18 +70,24 @@ function RequestCard({ offer, now }: { offer: HotelOffer; now: number }) {
       <div className="muted small">
         {fmtDate(offer.checkIn)} → {fmtDate(offer.checkOut)} · {offer.nights} night{offer.nights > 1 ? 's' : ''} · {offer.rooms} room{offer.rooms > 1 ? 's' : ''} · round {offer.round}
       </div>
-      <div className="row" style={{ alignItems: 'baseline', margin: '10px 0' }}>
-        <span className="price">{inr(offer.bidPricePerNight)}</span>
-        <span className="muted">per night · your listed price {inr(offer.listedPrice)} ({below}% lower)</span>
+      <div className="request-prices">
+        <div><strong className="price">{inr(offer.bidPricePerNight)}</strong> <span className="small muted">guest bid per night</span>
+          <div className="small muted">Private minimum {inr(offer.minimumPrice)}</div></div>
+        <div><span className="small muted">Listed rate</span><br /><strong>{inr(offer.listedPrice)}</strong>
+          <span className="small muted"> · {below}% lower bid</span></div>
       </div>
       {belowMinimum && <p className="small muted">Below your {inr(offer.minimumPrice)} minimum. Counter or decline.</p>}
       <ErrorBox error={respond.error ? new Error(errMsg(respond.error)) : null} />
-      <div className="row wrap">
+      <div className="request-actions">
         <button className="btn ok" disabled={!left || belowMinimum || respond.isPending} onClick={() => respond.mutate({ action: 'ACCEPT' })}>Accept {inr(offer.bidPricePerNight)}</button>
         <button className="btn danger" disabled={!left || respond.isPending} onClick={() => respond.mutate({ action: 'DECLINE' })}>Decline</button>
-        <span className="grow" />
-        <input className="input" style={{ width: 160 }} inputMode="numeric" placeholder={`Counter up to ${offer.listedPrice}`} value={counter} onChange={(e) => setCounter(e.target.value.replace(/\D/g, ''))} />
-        <button className="btn soft" disabled={!left || !counterOk || respond.isPending} onClick={() => respond.mutate({ action: 'COUNTER', counterPrice: counterNum })}>Send counter</button>
+      </div>
+      <div className="request-counter">
+        <label className="field">Counteroffer
+          <input className="input" inputMode="numeric" placeholder={`Up to ${offer.listedPrice}`} value={counter}
+            onChange={(event) => setCounter(event.target.value.replace(/\D/g, ''))} />
+        </label>
+        <button className="btn" disabled={!left || !counterOk || respond.isPending} onClick={() => respond.mutate({ action: 'COUNTER', counterPrice: counterNum })}>Send counter</button>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import { emptyPin, parsePin } from './map-pin';
 
 const blank = (category: RoomCategory = 'STANDARD'): RoomInput => ({ category, name: category === 'STANDARD' ? 'Standard Room' : category === 'DELUXE' ? 'Deluxe Room' : 'Suite', maxGuests: 2, listedPrice: 0, minPrice: 0, totalRooms: 5 });
 
-export default function Register({ first, onRegistered }: { first?: boolean; onRegistered?: (id: number) => void }) {
+export default function Register() {
   const api = useApi();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -37,8 +37,7 @@ export default function Register({ first, onRegistered }: { first?: boolean; onR
   const create = useMutation({
     mutationFn: () => api.post<MyHotel>('/api/v1/partner/hotels', { ...f, rooms, ...pin }),
     onSuccess: async (hotel) => {
-      const select = onRegistered ?? hotelContext?.select;
-      select?.(hotel.id);
+      hotelContext?.select(hotel.id);
       await qc.invalidateQueries({ queryKey: ['partnerHotels'] });
       nav('/hotel/profile');
     },
@@ -53,7 +52,7 @@ export default function Register({ first, onRegistered }: { first?: boolean; onR
 
   return (
     <>
-      <PageHead title={first ? 'Welcome! Register your hotel' : 'Register another hotel'} sub="After this, upload your four documents. We verify them, then you go live." />
+      <PageHead title={!hotelContext?.hotel ? 'Welcome! Register your hotel' : 'Register another hotel'} sub="After this, upload your four documents. We verify them, then you go live." />
       <ErrorBox error={create.error} />
       <div className="card stack">
         <div className="row wrap">
