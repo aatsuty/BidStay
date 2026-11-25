@@ -5,17 +5,29 @@ One TypeScript codebase for **Android, iOS and Web**. Expo SDK 58, Expo Router (
 ## Run it
 
 ```bash
-npm install
-cp .env.example .env        # set EXPO_PUBLIC_API_URL if needed
-npx expo start              # press a (Android), i (iOS), w (web) or scan the QR with Expo Go
+npm ci
+npx expo start --go --lan
 ```
-Start the backend first (`docker compose up -d` then `mvn spring-boot:run -Dspring-boot.run.profiles=dev`).
 
-| Where the app runs | Backend URL to use (Settings tab) |
+Scan the QR with the build of Expo Go that matches **SDK 58**. For Android, [download it from Expo](https://expo.dev/go?sdkVersion=58&platform=android&device=true). In the terminal, press `a` for an Android emulator, `i` for iOS Simulator, or `w` for web.
+
+### Android says it failed to download the remote update
+
+1. Connect the phone and the computer running Metro to the same Wi-Fi. Stop the existing Expo process, then run `npx expo start --go --lan --clear` in **bidstay-app**. Scan the new QR.
+2. On the phone, open `http://<computer-Wi-Fi-IP>:8081/status` in Chrome, using the IP and port printed by Expo. Expect `packager-status:running`. A timeout points to LAN access. Check the computer's firewall permission for Node.js and whether the Wi-Fi allows devices to reach one another.
+3. If the LAN connection is blocked, run `npx expo start --go --tunnel --clear` and scan its QR. Expo CLI may prompt for `@expo/ngrok`. If Metro is reachable but the download still fails, check the first error in the Expo terminal after scanning. In a managed shell, an error creating the `.expo` directory requires a writable Expo state directory.
+
+### Connect the backend after the app opens
+
+Run `docker compose up -d` and `mvn spring-boot:run -Dspring-boot.run.profiles=dev` from **bidstay-backend**. An Expo tunnel forwards Metro traffic. Spring Boot on port 8080 must be reachable separately.
+
+| Where the app runs | Backend URL to use |
 |---|---|
 | Web / iOS simulator | `http://localhost:8080` |
 | Android emulator | `http://10.0.2.2:8080` |
 | Real phone | `http://<your computer's LAN IP>:8080` (same Wi-Fi) |
+
+On the phone, test `http://<computer-Wi-Fi-IP>:8080/actuator/health`. When it loads, enter the backend URL under **Profile → Local demo settings** and save it. You can also set `EXPO_PUBLIC_API_URL` in your local `.env` before starting Expo. An already saved demo URL can override that default, so check the value under Profile.
 
 Checks: `npm run typecheck`. Production web build: `npx expo export --platform web`.
 
@@ -32,7 +44,7 @@ Checks: `npm run typecheck`. Production web build: `npx expo export --platform w
 
 ## Try the whole flow on one device
 
-1. Settings: guest `1`.
+1. In **Profile → Local demo settings**, use guest `1`.
 2. Search -> Find hotels -> Select all -> bid `1100` -> Send. Hotel Metro Inn (hidden minimum 1000) accepts instantly; Hotel Sunrise (minimum 1200) waits.
 3. Open the **hotelier portal** (bidstay-portals) as the hotel owner and counter with `1500`, or just reply `COUNTER 1500` in its WhatsApp-style chat.
 4. Back in **My Trips**, open the bid: a counter offer appears. Book it, then Pay.
