@@ -25,8 +25,9 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-sharing",
+      ["expo-location", { "locationWhenInUsePermission": "Use your approximate location to find nearby stays." }]
     ],
     "scheme": "bidstay"
   }

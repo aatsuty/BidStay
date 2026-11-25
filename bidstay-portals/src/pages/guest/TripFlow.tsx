@@ -7,6 +7,7 @@ import { useApi } from '../../lib/api';
 import { countdown, fmtDate, useNow } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import { useGuest } from './GuestShell';
+import { deviceRequest } from '../../lib/portal-device';
 import HotelDetails from './HotelDetails';
 import ReviewForm from './ReviewForm';
 import WhatsAppPreference from '../WhatsAppPreference';
@@ -178,6 +179,7 @@ export function Checkout() {
   const api = useApi();
   const qc = useQueryClient();
   const now = useNow();
+  const [printError, setPrintError] = useState<unknown>();
   const key = ['guest-booking', cacheKey, bookingId];
   const result = useQuery({
     queryKey: key, enabled: signedIn && !!bookingId,
@@ -216,7 +218,7 @@ export function Checkout() {
 
   return <TripPage title={title} sub={booking ? `Booking #${booking.bookingId}` : undefined}>
     {!signedIn ? <SignInPrompt /> : <>
-      <ErrorBox error={result.error ?? pay.error ?? paymentLink.error ?? cancel.error} />
+      <ErrorBox error={result.error ?? pay.error ?? paymentLink.error ?? cancel.error ?? printError} />
       {result.isPending && <p role="status">Loading booking…</p>}
       {booking && <section className="guest-checkout">
         <span className={'guest-hotel-icon' + (confirmed ? ' confirmed' : '')}>{confirmed ? <Check size={25} /> : <CreditCard size={24} />}</span>
@@ -263,7 +265,22 @@ export function Checkout() {
           {canCancel && <button className="guest-quiet" disabled={cancel.isPending} onClick={() => {
             if (window.confirm('Cancel this booking and release the rooms?')) cancel.mutate();
           }}>{pending ? 'Cancel checkout' : 'Cancel booking'}</button>}
-          {booking.receipt && <button className="guest-quiet" onClick={() => window.print()}><Printer size={16} /> Print receipt</button>}
+          {booking.receipt && <button className="guest-quiet" onClick={() => {
+            setPrintError(undefined);
+            const stay = booking.shortStay
+              ? `${indiaDateTime(booking.shortStay.arrival)} – ${indiaDateTime(booking.shortStay.departure)}`
+              : `${fmtDate(booking.checkIn)} – ${fmtDate(booking.checkOut)}`;
+            const onDevice = deviceRequest({ action: 'print', text: [
+              booking.receipt?.demo ? 'Demo payment receipt' : 'Payment receipt',
+              `Booking #${booking.bookingId}`, booking.hotelName, booking.hotelAddress, booking.roomName, stay,
+              `${booking.rooms} ${booking.rooms === 1 ? 'room' : 'rooms'} · ${rupees.format(booking.totalAmount)}`,
+              `Payment reference ${booking.receipt?.reference}`,
+              booking.receipt?.recordedAt && `Payment recorded ${indiaDateTime(booking.receipt.recordedAt)}`,
+              booking.receipt?.refundReference && `Refund reference ${booking.receipt.refundReference}`,
+            ].filter(Boolean).join('\n') });
+            if (onDevice) void onDevice.catch(setPrintError);
+            else window.print();
+          }}><Printer size={16} /> Print receipt</button>}
           {!pending && <Link to="/trips" className="guest-quiet">View my trips <ArrowRight size={17} /></Link>}
         </div>
       </section>}

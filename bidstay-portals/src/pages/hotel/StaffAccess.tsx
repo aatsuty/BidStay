@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, useApi } from '../../lib/api';
 import { fmtDateTime } from '../../lib/format';
+import { deviceRequest } from '../../lib/portal-device';
 import { useSession } from '../../lib/session';
 import { ErrorBox, Loading } from '../../components/ui';
 
@@ -53,7 +54,8 @@ export default function StaffAccess({ hotelId }: { hotelId: number }) {
       {link && <div className="row wrap" style={{ marginTop: 10 }}>
         <label className="field grow">Invitation link<input className="input" value={link} readOnly onFocus={(event) => event.currentTarget.select()} /></label>
         <button className="btn ghost" style={{ alignSelf: 'flex-end' }} onClick={() => {
-          void navigator.clipboard?.writeText(link).then(() => setCopied(true)).catch(() => setCopied(false));
+          const copy = deviceRequest({ action: 'copy', text: link }) ?? navigator.clipboard?.writeText(link);
+          void copy?.then(() => setCopied(true)).catch(() => setCopied(false));
         }}>{copied ? 'Copied' : 'Copy link'}</button>
       </div>}
       <h3>Current team</h3>

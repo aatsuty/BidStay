@@ -1,15 +1,15 @@
 # BidStay pilot setup
 
-Use the existing Spring Boot API and PostgreSQL database with the React web portal and the Expo guest app. The web portal serves the guest, hotel partner, and admin experiences from the same deployment. See the [product and scaling roadmap](product-development.md) for listing galleries, alerts and hourly stays.
+Spring Boot and PostgreSQL serve one React portal for guests, hotel partners, and admins. The Expo app opens the same portal on Android and iOS. See the [product and scaling roadmap](product-development.md) for listing galleries, alerts and hourly stays.
 
 ## Run locally
 
 1. Start PostgreSQL and run the backend with `mvn spring-boot:run -Dspring-boot.run.profiles=dev` in `bidstay-backend`. Flyway upgrades an existing seeded development database in place.
-2. Run `npm ci` followed by `npm run dev` in `bidstay-portals`. Open the printed web URL. **Find a stay** is the guest experience at `/`. **Partner portal** opens staff or admin sign-in with local demo accounts available in development.
-3. In a separate terminal, run `npm ci` and `npx expo start --go --lan` in `bidstay-app`. For a physical device, match Expo Go to SDK 58 and point the app at the computer's reachable backend. [Mobile setup and download error troubleshooting](../bidstay-app/README.md#android-says-it-failed-to-download-the-remote-update)
+2. Run `npm ci` followed by `npm run dev -- --host 0.0.0.0 --port 5173 --strictPort` in `bidstay-portals`. Open the printed web URL. **Find a stay** is the guest experience at `/`. **Partner portal** opens staff or admin sign-in with local demo accounts available in development.
+3. In a separate terminal, run `npm ci` and `npx expo start --go --lan` in `bidstay-app`. Use Expo Go for SDK 58 on the same Wi-Fi. The phone opens the Vite portal and Vite forwards API requests to Spring Boot. [Mobile setup and download error troubleshooting](../bidstay-app/README.md#android-says-it-failed-to-download-the-remote-update)
 4. To test bidding, choose an upcoming Delhi stay, select Hotel Sunrise Paharganj, and send a ₹1,100 bid as the demo guest. Use the demo owner account to counter at ₹1,500. In **Profile & documents → Stay policy**, set check-in, check-out and arrival requirements. Return to the guest offer, review the terms and complete demo checkout. Open **My trips** to verify the booking and demo receipt.
 
-The web deployment can serve its API under the same HTTPS origin. Set `VITE_API_URL` or `EXPO_PUBLIC_API_URL` when clients need an explicit API origin. The development server uses OpenStreetMap tiles. Configure a production tile service with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` before routing pilot map traffic. The search shows approximate hotel locations. The hero photograph illustrates the stay concept.
+For a release, serve the portal and API under the same HTTPS origin and set `EXPO_PUBLIC_PORTAL_URL` for the app build. In development, `VITE_API_PROXY_TARGET` overrides the default backend target of `http://127.0.0.1:8080`. The development server uses OpenStreetMap tiles. Configure a production tile service with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` before routing pilot map traffic. The search shows approximate hotel locations. The hero photograph illustrates the stay concept.
 
 ## Enable providers
 
@@ -34,7 +34,7 @@ Set credentials in the backend environment or secret manager.
 
 The guest receipt records the payment and any recorded refund reference. Agree on tax invoice and settlement responsibilities with the hotel before accepting live money.
 
-To test listed-price checkout, open a dated hotel result and choose **Book at listed price**. For hourly checkout, first save the overnight policy in **Profile & documents**, then publish 3- and 6-hour prices for the room under **Rates & rules → Hourly stays**. Search **Hourly stays** on web or in Expo and choose an arrival time. Complete the booking and verify the slot in both **My trips** and the hotel’s **Bookings** screen.
+To test listed-price checkout, open a dated hotel result and choose **Book at listed price**. For hourly checkout, first save the overnight policy in **Profile & documents**, then publish 3- and 6-hour prices for the room under **Rates & rules → Hourly stays**. Select **Hourly** above the search form and choose an arrival time. Published 3- and 6-hour room rates also appear in the property gallery. Complete the booking and verify the slot in both **My trips** and the hotel’s **Bookings** screen.
 
 Create approved WhatsApp templates with the configured `WHATSAPP_TEMPLATE_LANGUAGE`. The placeholders must match this order.
 

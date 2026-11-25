@@ -1,14 +1,17 @@
-import { lazy, Suspense, useMemo, useRef, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, IndianRupee, Images, List, LocateFixed, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, Star, Users } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { todayISO } from '../../lib/format';
+import { deviceRequest } from '../../lib/portal-device';
 import { useSession } from '../../lib/session';
 import HotelDetails from './HotelDetails';
+import StayTypeNav from './StayTypeNav';
 import { useGuest } from './GuestShell';
-import { addDays, mediaUrl, rupees, type Bid, type Booking, type HotelPage, type HotelResult } from './models';
+import { useDirectCheckout } from './useDirectCheckout';
+import { addDays, mediaUrl, rupees, type Bid, type HotelPage, type HotelResult } from './models';
 
 const MAX_SELECTED = 50;
 const HotelMap = lazy(() => import('./HotelMap'));
@@ -37,6 +40,7 @@ export default function Search() {
   const { signedIn, checkingSignIn, openSignIn } = useGuest();
   const { baseUrl, cacheKey } = useSession();
   const api = useApi();
+  const checkout = useDirectCheckout();
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
   const [form, setForm] = useState(() => initialSearch(params));
@@ -54,7 +58,6 @@ export default function Search() {
     return budget >= 1 && budget <= 100_000 ? String(budget) : '1500';
   });
   const [details, setDetails] = useState<HotelResult>();
-  const bookingAttempt = useRef<{ fingerprint: string; requestId: string } | null>(null);
 
   const hotelQuery = useInfiniteQuery({
     queryKey: ['hotel-search', baseUrl, criteria, area, minimumStars, maximumRate, nearby],
@@ -72,6 +75,8 @@ export default function Search() {
   const hotels = useMemo(() => hotelQuery.data?.pages.flatMap((page) => page.hotels) ?? [], [hotelQuery.data]);
   const areas = hotelQuery.data?.pages[0]?.areas ?? [];
   const visible = hotels;
+  const selectableHotels = visible.slice(0, MAX_SELECTED);
+  const allSelected = selectableHotels.length > 0 && selectableHotels.every((hotel) => selected.has(hotel.id));
   const targets = hotels.filter((hotel) => selected.has(hotel.id));
   const listed = targets.length ? targets : visible;
   const priceHint = listed.length ? listed.reduce((total, hotel) => total + hotel.listedPrice, 0) / listed.length : 0;
@@ -88,15 +93,10 @@ export default function Search() {
   });
 
   const bookListed = useMutation({
-    mutationFn: (hotel: HotelResult) => {
-      const stay = { roomTypeId: hotel.roomTypeId, checkIn: criteria.checkIn, checkOut: criteria.checkOut,
-        rooms: criteria.rooms, guests: criteria.guests, listedRate: hotel.listedPrice };
-      const fingerprint = JSON.stringify([cacheKey, stay]);
-      if (bookingAttempt.current?.fingerprint !== fingerprint) {
-        bookingAttempt.current = { fingerprint, requestId: crypto.randomUUID() };
-      }
-      return api.post<Booking>('/api/v1/bookings/listed', { ...stay, requestId: bookingAttempt.current.requestId });
-    },
+    mutationFn: (hotel: HotelResult) => checkout('listed', {
+      roomTypeId: hotel.roomTypeId, checkIn: criteria.checkIn, checkOut: criteria.checkOut,
+      rooms: criteria.rooms, guests: criteria.guests, listedRate: hotel.listedPrice,
+    }),
     onSuccess: (booking) => {
       void queryClient.invalidateQueries({ queryKey: ['guest-direct-trips', cacheKey] });
       navigate('/checkout/' + booking.bookingId);
@@ -137,19 +137,22 @@ export default function Search() {
       setSelected(new Set());
       return;
     }
-    if (!navigator.geolocation) {
-      setLocationError('Location is unavailable. Choose a neighbourhood instead.');
-      return;
-    }
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(({ coords }) => {
+    function applyLocation(coords: { latitude: string; longitude: string }) {
       setLocating(false);
-      setNearby({ latitude: coords.latitude.toFixed(2), longitude: coords.longitude.toFixed(2) });
+      setNearby(coords);
       setSelected(new Set());
-    }, () => {
+    }
+    function locationUnavailable() {
       setLocating(false);
       setLocationError('Location is unavailable. Choose a neighbourhood instead.');
-    }, { timeout: 8000, maximumAge: 600_000 });
+    }
+    const onDevice = deviceRequest<{ latitude: string; longitude: string }>({ action: 'location' });
+    if (onDevice) void onDevice.then(applyLocation, locationUnavailable);
+    else if (navigator.geolocation) navigator.geolocation.getCurrentPosition(({ coords }) => applyLocation({
+      latitude: coords.latitude.toFixed(2), longitude: coords.longitude.toFixed(2),
+    }), locationUnavailable, { timeout: 8000, maximumAge: 600_000 });
+    else locationUnavailable();
   }
 
   const searchDirty = Object.keys(criteria).some((key) => criteria[key as keyof SearchFields] !== form[key as keyof SearchFields]);
@@ -168,6 +171,8 @@ export default function Search() {
         </div>
       </section>
       <form onSubmit={runSearch} className="guest-search-form" id="find-hotels">
+        <StayTypeNav hourlyUrl={'/hourly?' + new URLSearchParams({ city: form.city, date: form.checkIn,
+          category: form.category, guests: String(form.guests), rooms: String(form.rooms) })} />
         <label><span><MapPin size={16} /> Destination</span><input required maxLength={80} value={form.city} onChange={(event) => change('city', event.target.value)} /></label>
         <label><span><CalendarDays size={16} /> Check-in</span><input type="date" required min={todayISO()} value={form.checkIn} onChange={(event) => {
           const checkIn = event.target.value;
@@ -183,9 +188,15 @@ export default function Search() {
         <div className="guest-results-main">
           <div className="guest-section-head">
             <div><h2 id="results-title">Choose your hotels</h2><p>{hotelQuery.isPending ? 'Checking room availability…' : `${visible.length}${hotelQuery.hasNextPage ? '+' : ''} available in ${criteria.city}`}</p></div>
-            <div className="guest-switch" aria-label="Hotel view">
-              <button aria-pressed={panel === 'map'} onClick={() => setPanel('map')}><Map size={16} /> Map</button>
-              <button aria-pressed={panel === 'list'} onClick={() => setPanel('list')}><List size={16} /> List</button>
+            <div className="guest-result-actions">
+              {visible.length > 1 && <button className="guest-quiet" type="button" onClick={() =>
+                setSelected(allSelected ? new Set() : new Set(selectableHotels.map((hotel) => hotel.id)))}>
+                {allSelected ? 'Clear selection' : visible.length > MAX_SELECTED ? `Select first ${MAX_SELECTED}` : 'Select all'}
+              </button>}
+              <div className="guest-switch" aria-label="Hotel view">
+                <button aria-pressed={panel === 'map'} onClick={() => setPanel('map')}><Map size={16} /> Map</button>
+                <button aria-pressed={panel === 'list'} onClick={() => setPanel('list')}><List size={16} /> List</button>
+              </div>
             </div>
           </div>
           <div className="guest-filters">

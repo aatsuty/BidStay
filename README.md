@@ -4,7 +4,7 @@ Pilot branch setup, web routes, provider configuration and scaling notes are in 
 
 A hotel booking platform where the guest names the price. One bid goes to many hotels at once. Each hotel can accept, counter or decline, and the booking is confirmed when both sides agree.
 
-Status: pilot implementation available locally. The React web app serves all three roles. The Expo app serves guests on Android and iOS. The dev profile includes demo accounts and payment.
+Status: pilot implementation available locally. The React web app serves all three roles. The Expo app opens that same portal on Android and iOS. The dev profile includes demo accounts and payment.
 
 Why BidStay
 Guests today	Hotels today
@@ -22,11 +22,11 @@ Raise or accept: the guest can raise the bid (up to 3 rounds) or book the best o
 Pay and confirm: the rooms are held for 10 minutes while the guest pays. The hotel's address is shown only after payment.
 Three roles, one backend
 App	For	Tech	Folder
-Guest app	Travellers	React web and React Native (Expo), TypeScript	bidstay-portals (/) and bidstay-app
+Guest app	Travellers	React portal with an Expo app wrapper	bidstay-portals (/)
 Hotel portal	Hotel owners	React, TypeScript, Vite	bidstay-portals (/hotel)
 Admin portal	BidStay team	Same web project	bidstay-portals (/admin)
 Backend API	All of the above	Java 21, Spring Boot 3, PostgreSQL, Flyway	bidstay-backend
- Guest app (React Native) ──┐
+ Guest portal (React)     ──┐
  Hotel portal (React) ──────┼──►  Spring Boot API  ──►  PostgreSQL
  Admin portal (React) ──────┘      bidding engine       (Flyway migrations)
                                    room inventory + holds
@@ -78,23 +78,26 @@ More are in docs/screenshots.
 
 Quick start
 
-Needs Docker, Java 21, Maven and Node 20 or newer. Full guide with troubleshooting: docs/SETUP.md.
+Needs Docker, Java 21, Maven and Node 20 or newer. See the [pilot setup](docs/pilot.md) for configuration.
 
-bash
+```bash
 # 1. Backend (database + API, with demo data)
 cd bidstay-backend
 docker compose up -d
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 
-# 2. Hotel and admin portals  ->  http://localhost:5173
+# 2. Shared guest, hotel partner and admin portal at http://localhost:5173
 cd bidstay-portals
-npm install && npm run dev
+npm ci && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort
 
-# 3. Guest app in the browser (press w)
+# 3. Android and iOS app in a third terminal
 cd bidstay-app
-npm install && npx expo start
+npm ci && npx expo start --go --lan
+```
 
-Demo accounts (the dev profile only): the portals' login page has buttons for the hotel owner (user 3), a new hotel owner with hotels waiting for approval (user 5), and the admin (user 4). The guest app uses user 1.
+[Expo Go and Wi-Fi setup](bidstay-app/README.md)
+
+Demo accounts (the dev profile only): the portals' login page has buttons for the hotel owner (user 3), a new hotel owner with hotels waiting for approval (user 5), and the admin (user 4). Choose **Sign in → Continue with demo guest** to use the guest demo account.
 
 Try it in 5 minutes: bid ₹1,100 at Hotel Sunrise and Hotel Metro Inn from the guest app. Metro Inn accepts instantly (private minimum ₹1,000). Sunrise (minimum ₹1,200) waits, so open the hotel portal and use the Counter button or copy the counter command from the chat message. Back in the guest app, book the counter offer and pay.
 
@@ -111,8 +114,8 @@ bidstay/
       hotel/          hotels, rooms, documents
     src/main/resources/db/migration   database schema (Flyway)
     src/main/resources/db/seed        demo data (dev profile only)
-  bidstay-app/        React Native guest app (Expo Router)
-  bidstay-portals/    React hotel and admin portals (Vite)
+  bidstay-app/        Expo wrapper for the shared portal
+  bidstay-portals/    Shared React portal for all three roles (Vite)
   docs/               setup guide, screenshots, business idea
 Key design decisions
 The hotel's minimum price is private. It never appears in any guest-facing response.

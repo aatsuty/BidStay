@@ -113,7 +113,7 @@ export default function Login() {
             <div className="row spread"><b>{account.title}</b><span className="badge info">{account.tag}</span></div>
             <div className="muted small">{account.sub}</div>
           </button>)}
-          <label className="field">Demo backend URL<input className="input" value={url} onChange={(event) => setUrl(event.target.value)} /></label>
+          <label className="field">Demo backend URL<input className="input" placeholder="Use the portal's backend" value={url} onChange={(event) => setUrl(event.target.value)} /></label>
         </details>}
       </div>
     </div>

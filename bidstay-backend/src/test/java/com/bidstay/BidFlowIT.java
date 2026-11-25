@@ -459,6 +459,11 @@ class BidFlowIT {
                 .andExpect(status().isForbidden());
         mvc.perform(put(hourlyUrl).header("X-User-Id", 4).contentType(MediaType.APPLICATION_JSON).content(config))
                 .andExpect(status().isNoContent());
+        String detailsUrl = "/api/v1/hotels/" + hotelId;
+        mvc.perform(get(detailsUrl)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.rooms[0].hourlyRates.threeHours").value(700))
+                .andExpect(jsonPath("$.rooms[0].hourlyRates.sixHours").value(1200))
+                .andExpect(jsonPath("$.rooms[0].minPrice").doesNotExist());
 
         var morning = bookingService.startHourly(1L, new HourlyStay(UUID.randomUUID(), roomType, date,
                 LocalTime.of(8, 0), 3, 1, 2, new BigDecimal("700")));
@@ -483,6 +488,11 @@ class BidFlowIT {
             bookingService.cancel(owner, winner.bookingId());
             assertEquals(1, hourly.search("Hourly QA", date, LocalTime.of(12, 0), 6, RoomCategory.STANDARD, 1, 2, 0).hotels().size());
         }
+        mvc.perform(put(hourlyUrl).header("X-User-Id", 4).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isNoContent());
+        mvc.perform(get(detailsUrl)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.rooms[0].hourlyRates").doesNotExist());
     }
 
     @Test

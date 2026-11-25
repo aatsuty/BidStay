@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/api';
+import { downloadDocument } from '../../lib/portal-device';
 import { fmtDateTime } from '../../lib/format';
 import type { AdminHotel, DocumentView, HotelStatus } from '../../lib/types';
 import StaffAccess from '../hotel/StaffAccess';
@@ -51,12 +52,7 @@ function HotelCard({ h }: { h: AdminHotel }) {
   const download = useMutation({
     mutationFn: async (doc: DocumentView) => {
       const bytes = await api.download(`/api/v1/admin/hotels/${h.id}/documents/${doc.type}/files/${doc.versionId}`);
-      const url = URL.createObjectURL(bytes);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = doc.reference ?? 'document';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await downloadDocument(bytes, doc.reference ?? 'document');
     },
   });
   const publish = useMutation({

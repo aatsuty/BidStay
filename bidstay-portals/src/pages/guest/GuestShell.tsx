@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
 import { BedDouble, Bell, Building2, CalendarDays, ChevronRight, CircleUserRound, LogOut, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useMe } from '../../App';
@@ -16,7 +16,8 @@ export default function GuestShell() {
   const api = useApi();
   const me = useMe();
   const { pathname } = useLocation();
-  const [showSignIn, setShowSignIn] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [showSignIn, setShowSignIn] = useState(() => params.get('signIn') === '1');
   const [logoutError, setLogoutError] = useState<unknown>();
   const signedIn = me.data?.role === 'GUEST';
   const checkingSignIn = session.userId !== null && me.isPending;
@@ -65,7 +66,14 @@ export default function GuestShell() {
       <div className="guest-container"><ErrorBox error={logoutError} /></div>
       <Outlet context={{ signedIn, checkingSignIn, openSignIn: () => setShowSignIn(true) } satisfies GuestContext} />
       <footer className="guest-footer"><div className="guest-container"><Link to="/" className="guest-wordmark">Bid<strong>Stay</strong></Link><Link to="/login">Hotel partner &amp; admin portal <ChevronRight size={14} /></Link></div></footer>
-      {showSignIn && <GuestSignIn close={() => setShowSignIn(false)} />}
+      {showSignIn && <GuestSignIn close={() => {
+        setShowSignIn(false);
+        if (params.has('signIn')) {
+          const next = new URLSearchParams(params);
+          next.delete('signIn');
+          setParams(next, { replace: true });
+        }
+      }} />}
     </div>
   );
 }

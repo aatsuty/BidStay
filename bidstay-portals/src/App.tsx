@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from './lib/api';
 import { useSession } from './lib/session';
@@ -48,6 +49,10 @@ function Guard({ role, children }: { role: Role; children: React.ReactNode }) {
 }
 
 export default function App() {
+  const location = useLocation();
+  useEffect(() => {
+    window.ReactNativeWebView?.postMessage(JSON.stringify({ action: 'history', canGoBack: window.history.state?.idx > 0 }));
+  }, [location]);
   return (
     <Routes>
       <Route element={<GuestShell />}>

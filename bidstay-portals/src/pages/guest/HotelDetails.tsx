@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link, useLocation } from 'react-router-dom';
 import { BedDouble, Check, Images, MapPin, Plus, Users, X } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
@@ -8,7 +9,10 @@ import type { StayPolicy } from '../../lib/types';
 import { mediaUrl, rupees } from './models';
 
 interface Photo { id: number; caption?: string }
-interface Room { id: number; name: string; maxGuests: number; listedPrice: number; photos: Photo[] }
+interface Room {
+  id: number; name: string; category: string; maxGuests: number; listedPrice: number; photos: Photo[];
+  hourlyRates?: { threeHours: number; sixHours: number } | null;
+}
 interface Hotel { id: number; name: string; city: string; area: string; starRating?: number; photos: Photo[]; rooms: Room[]; stayPolicy?: StayPolicy }
 interface PublicReview { rating: number; comment?: string; createdAt: string }
 
@@ -18,6 +22,7 @@ export default function HotelDetails({ id, name, selection, bookingAction, close
   const ref = useRef<HTMLDialogElement>(null);
   const api = useApi();
   const { baseUrl } = useSession();
+  const { pathname } = useLocation();
   const [photoId, setPhotoId] = useState<number>();
   const hotel = useQuery({
     queryKey: ['hotel-details', baseUrl, id],
@@ -61,6 +66,12 @@ export default function HotelDetails({ id, name, selection, bookingAction, close
           </button> : <span className="guest-hotel-icon"><BedDouble size={19} /></span>}
           <div><h4>{room.name}</h4><p><Users size={13} /> Up to {room.maxGuests} guests</p></div>
           <div className="guest-room-rate"><strong>{rupees.format(room.listedPrice)}</strong><span>Listed per night</span></div>
+          {room.hourlyRates && <div className="guest-room-hourly">
+            <span>{rupees.format(room.hourlyRates.threeHours)} / 3 hours · {rupees.format(room.hourlyRates.sixHours)} / 6 hours</span>
+            {pathname !== '/hourly' && <Link to={'/hourly?' + new URLSearchParams({ city: hotel.data.city, category: room.category })} onClick={close}>
+              Check hourly availability
+            </Link>}
+          </div>}
         </article>
       ))}</div>
       {hotel.data.stayPolicy && <section className="guest-stay-terms">

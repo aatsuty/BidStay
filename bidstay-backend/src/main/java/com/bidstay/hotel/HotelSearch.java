@@ -56,11 +56,16 @@ public class HotelSearch {
                 where hotel_id = ? and status = 'APPROVED' order by id
                 """, (rs, row) -> new Photo(rs.getLong(1), rs.getObject(2, Long.class), rs.getString(3)), hotelId);
         var roomTypes = jdbc.query("""
-                select id, name, category, max_guests, listed_price from room_types where hotel_id = ? order by id
+                select r.id, r.name, r.category, r.max_guests, r.listed_price, hr.three_hours, hr.six_hours
+                from room_types r
+                left join hourly_stay_rates hr on hr.room_type_id = r.id and hr.enabled
+                where r.hotel_id = ? order by r.id
                 """, (rs, row) -> {
             long id = rs.getLong(1);
+            BigDecimal threeHours = rs.getBigDecimal(6);
+            HourlyRates hourlyRates = threeHours == null ? null : new HourlyRates(threeHours, rs.getBigDecimal(7));
             return new CatalogRoom(id, rs.getString(2), rs.getString(3), rs.getInt(4), rs.getBigDecimal(5),
-                    photos.stream().filter(photo -> java.util.Objects.equals(photo.roomTypeId(), id)).toList());
+                    photos.stream().filter(photo -> java.util.Objects.equals(photo.roomTypeId(), id)).toList(), hourlyRates);
         }, hotelId);
         return new Details(hotelId, header.name(), header.city(), header.area(), header.stars(),
                 photos.stream().filter(photo -> photo.roomTypeId() == null).toList(), roomTypes, header.stayPolicy());
@@ -69,7 +74,9 @@ public class HotelSearch {
     public record Details(long id, String name, String city, String area, Integer starRating,
                           List<Photo> photos, List<CatalogRoom> rooms, StayPolicy stayPolicy) {}
     public record Photo(long id, Long roomTypeId, String caption) {}
-    public record CatalogRoom(long id, String name, String category, int maxGuests, BigDecimal listedPrice, List<Photo> photos) {}
+    public record CatalogRoom(long id, String name, String category, int maxGuests, BigDecimal listedPrice,
+                              List<Photo> photos, HourlyRates hourlyRates) {}
+    public record HourlyRates(BigDecimal threeHours, BigDecimal sixHours) {}
     private record Header(String name, String city, String area, Integer stars, StayPolicy stayPolicy) {}
 
     public Page available(String city, LocalDate checkIn, LocalDate checkOut,

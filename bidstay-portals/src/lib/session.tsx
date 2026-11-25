@@ -9,7 +9,7 @@ interface Ctx extends SessionState {
 }
 
 const KEY = 'bidstay.portal.session.v1';
-const DEFAULT_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '');
+const DEFAULT_URL = import.meta.env.DEV ? '' : import.meta.env.VITE_API_URL ?? '';
 
 function load(): SessionState {
   if (!import.meta.env.DEV) return { userId: null, baseUrl: DEFAULT_URL };
@@ -17,7 +17,9 @@ function load(): SessionState {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      return { userId: saved.userId ?? null, baseUrl: saved.baseUrl ?? DEFAULT_URL };
+      const baseUrl = saved.baseUrl === 'http://localhost:8080' || saved.baseUrl === import.meta.env.VITE_API_URL
+        ? DEFAULT_URL : saved.baseUrl ?? DEFAULT_URL;
+      return { userId: saved.userId ?? null, baseUrl };
     }
   } catch { /* ignore a corrupted value */ }
   return { userId: null, baseUrl: DEFAULT_URL };

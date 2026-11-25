@@ -64,6 +64,11 @@
 .guest-switch { display: flex; align-items: center; gap: 3px; padding: 3px; background: #edf2fb; border-radius: 11px; }
 .guest-switch button { padding: 7px 10px; border: 0; border-radius: 8px; display: inline-flex; gap: 6px; align-items: center; color: var(--subtle); font-size: 12px; font-weight: 800; background: transparent; }
 .guest-switch button[aria-pressed=true] { background: #fff; color: var(--navy); box-shadow: 0 2px 5px #18346e1a; }
+.guest-stay-switch { width: fit-content; max-width: 100%; }
+.guest-stay-switch a { display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 13px; border-radius: 8px; color: var(--subtle); font-size: 13px; font-weight: 800; }
+.guest-stay-switch a[aria-current=page] { background: #fff; color: var(--navy); box-shadow: 0 2px 5px #18346e1a; }
+.guest-search-form .guest-stay-switch { grid-column: 1 / -1; margin-bottom: 10px; }
+.guest-result-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .guest-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 16px 12px; }
 .guest-filters label { display: inline-flex; position: relative; align-items: center; color: var(--subtle); }
 .guest-filters select { appearance: none; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 31px 8px 10px; color: var(--navy); font-size: 12px; font-weight: 750; }
@@ -220,7 +225,7 @@
   .guest-search-form { grid-template-columns: 1fr 1fr; margin: -17px 7px 20px; padding: 10px; gap: 8px; }
   .guest-search-form label { border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
   .guest-search-form label:nth-last-child(2) { border-right: 1px solid var(--line); }
-  .guest-search-form label:first-child, .guest-search-form button { grid-column: 1 / -1; }
+  .guest-search-form label:first-of-type, .guest-search-form button { grid-column: 1 / -1; }
   .guest-search-form button { min-height: 42px; }
   .guest-results { grid-template-columns: minmax(0, 1fr); gap: 13px; }
   .guest-price { position: static; }
@@ -270,6 +275,8 @@
 .guest-room p { display: flex; align-items: center; gap: 4px; font-size: 11px; }
 .guest-room-rate { text-align: right; font-size: 13px; }
 .guest-room-rate span { display: block; font-size: 10px; color: var(--subtle); }
+.guest-room-hourly { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 12px; }
+.guest-room-hourly a { color: var(--blue); font-weight: 750; }
 .guest-room-picture { width: 67px; height: 51px; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--cream); }
 @media (max-width: 690px) {
   .guest-hotel-picture { width: 55px; height: 56px; }

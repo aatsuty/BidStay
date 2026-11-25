@@ -12,7 +12,9 @@ export default function HourlyRates({ hotelId }: { hotelId: number }) {
   const endpoint = `/api/v1/partner/hotels/${hotelId}/hourly`;
   const key = ['partner-hourly', cacheKey, hotelId];
   const rates = useQuery({ queryKey: key, queryFn: () => api.get<RoomRates[]>(endpoint), retry: false });
-  if (rates.error instanceof ApiError && rates.error.status === 403) return null;
+  if (rates.error instanceof ApiError && rates.error.status === 403) return <section className="card">
+    <h2>Hourly stays</h2><p className="muted small">Ask this property's manager to publish or change hourly rates.</p>
+  </section>;
   return <section className="card">
     <h2>Hourly stays</h2>
     <p className="muted small">Publish 3- and 6-hour rates per room. Stays run between 08:00 and 22:00 IST with 30 minutes between bookings.</p>
