@@ -21,21 +21,80 @@ public class HotelSearch {
     private final BidStayProperties properties;
     private final Clock clock;
 
+    public List<String> destinations(String prefix, boolean hourly) {
+        String term = prefix.strip();
+        if (term.length() > 80) throw ApiException.invalid("Destination is too long");
+        if (term.length() < 2) return List.of();
+        return jdbc.queryForList("""
+                select min(h.city)
+                from hotels h
+                where h.status = 'ACTIVE' and lower(h.city) like lower(?) escape '!'
+                  and (not ? or exists (
+                      select 1 from room_types r join hourly_stay_rates rates on rates.room_type_id = r.id
+                      where r.hotel_id = h.id and rates.enabled
+                  ))
+                group by lower(h.city)
+                order by lower(h.city)
+                limit 8
+                """, String.class, prefixPattern(term), hourly);
+    }
+
+    public List<Place> places(String prefix, boolean hourly) {
+        String term = prefix.strip();
+        if (term.length() > 182) throw ApiException.invalid("Destination is too long");
+        if (term.length() < 2) return List.of();
+        String neighbourhood = term.split(",", 2)[0].strip();
+        return jdbc.query("""
+                with input as (select lower(?) as prefix, lower(?) as area_prefix, lower(?) as name),
+                places as (
+                    select c.name as label, c.name as city, '' as area, 'CITY' as kind, c.id as city_id, null::bigint as neighbourhood_id
+                    from location_cities c, input i where c.name_key like i.prefix escape '!'
+                    union
+                    select c.name, c.name, '', 'CITY', c.id, null
+                    from location_city_aliases a join location_cities c on c.id = a.city_id, input i
+                    where a.alias like i.prefix escape '!'
+                    union all
+                    select r.name, r.name, '', 'REGION', null, null
+                    from location_regions r, input i where r.name_key like i.prefix escape '!'
+                    union all
+                    select n.name || ', ' || c.name, c.name, n.name, 'NEIGHBOURHOOD', c.id, n.id
+                    from location_neighbourhoods n join location_cities c on c.id = n.city_id, input i
+                    where n.name_key like i.area_prefix escape '!'
+                      and (position(',' in i.name) = 0 or c.name_key = btrim(substring(i.name from position(',' in i.name) + 1)))
+                )
+                select p.label, p.city, p.area, p.kind from places p cross join input i
+                where (p.kind <> 'CITY' or not exists (select 1 from location_regions where name_key = lower(p.label)))
+                  and exists (
+                    select 1 from hotels h where h.status = 'ACTIVE'
+                      and (h.city_id = p.city_id or (p.kind = 'REGION' and h.city_id in (select destination_cities(p.city))))
+                      and (p.neighbourhood_id is null or h.neighbourhood_id = p.neighbourhood_id)
+                      and (not ? or exists (
+                          select 1 from room_types rt join hourly_stay_rates rates on rates.room_type_id = rt.id
+                          where rt.hotel_id = h.id and rates.enabled))
+                )
+                order by (lower(p.label) = i.name) desc, p.kind = 'NEIGHBOURHOOD', p.label
+                limit 8
+                """, (rs, row) -> new Place(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)),
+                prefixPattern(term), prefixPattern(neighbourhood), term, hourly);
+    }
+
+    private static String prefixPattern(String term) {
+        return term.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+    }
+
+    public record Place(String label, String city, String area, String kind) {}
+
     public record Result(long id, String name, String area, Integer starRating, BigDecimal listedPrice,
                          Double latitude, Double longitude, boolean verified, String hotelPhoto, String roomPhoto,
-                         long roomTypeId) {}
+                         long roomTypeId, String city) {}
     public record Page(List<Result> hotels, Long nextCursor, List<String> areas) {}
-    public record Filters(String area, Integer minimumStars, BigDecimal maximumRate, Double latitude, Double longitude) {
+    public record Filters(String area, Integer minimumStars, BigDecimal maximumRate, MapSearchFilter map) {
         void validate() {
             if (area.length() > 100 || minimumStars != null && (minimumStars < 1 || minimumStars > 5)
                     || maximumRate != null && (maximumRate.signum() <= 0 || maximumRate.compareTo(BigDecimal.valueOf(100_000)) > 0)) {
                 throw ApiException.invalid("Check the neighbourhood, star rating and nightly rate filters");
             }
-            if (latitude == null && longitude == null) return;
-            if (latitude == null || longitude == null || !Double.isFinite(latitude) || !Double.isFinite(longitude)
-                    || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
-                throw ApiException.invalid("Choose a valid location");
-            }
+            map.validate();
         }
     }
 
@@ -90,30 +149,28 @@ public class HotelSearch {
             throw ApiException.invalid("Choose up to 10 rooms and 40 guests");
         }
         filters.validate();
+        MapSearchFilter map = filters.map();
 
         List<Result> results = jdbc.query("""
                 with filters as (select nullif(lower(?), '') as area, ?::integer as minimum_stars,
                                      ?::numeric as maximum_rate, round(?::numeric, 2)::double precision as lat,
                                      round(?::numeric, 2)::double precision as lng)
-                select h.id, h.name, h.area, h.star_rating, rt.listed_price, rt.id as room_type_id,
-                       round(h.latitude::numeric, 2)::double precision as latitude,
-                       round(h.longitude::numeric, 2)::double precision as longitude,
+                select h.id, h.name, h.area, c.name as city, h.star_rating, rt.listed_price, rt.id as room_type_id,
+                       h.map_point[1] as latitude, h.map_point[0] as longitude,
                        (select count(*) from hotel_documents d where d.hotel_id = h.id and d.verified) = 4 as verified,
                        (select m.id from hotel_media m where m.hotel_id = h.id and m.status = 'APPROVED'
                             and m.room_type_id is null order by m.id limit 1) as hotel_photo,
                        (select m.id from hotel_media m where m.hotel_id = h.id and m.status = 'APPROVED'
                             and m.room_type_id = rt.id order by m.id limit 1) as room_photo
-                from hotels h join room_types rt on rt.hotel_id = h.id cross join filters f
-                where lower(h.city) = lower(?) and h.status = 'ACTIVE' and h.id > ?
+                from hotels h join location_cities c on c.id = h.city_id
+                join room_types rt on rt.hotel_id = h.id cross join filters f
+                where h.city_id in (select destination_cities(?)) and h.status = 'ACTIVE' and h.id > ?
                   and rt.category = ? and rt.max_guests * ? >= ?
-                  and (f.area is null or lower(h.area) = f.area)
+                  and (f.area is null or h.neighbourhood_id in
+                        (select id from location_neighbourhoods where city_id = h.city_id and name_key = f.area))
                   and (f.minimum_stars is null or h.star_rating >= f.minimum_stars)
                   and (f.maximum_rate is null or rt.listed_price <= f.maximum_rate)
-                  and (f.lat is null or (h.latitude is not null and h.longitude is not null
-                       and 6371 * acos(least(1, greatest(-1,
-                           sin(radians(f.lat)) * sin(radians(h.latitude))
-                           + cos(radians(f.lat)) * cos(radians(h.latitude)) * cos(radians(h.longitude - f.lng))
-                       ))) <= 5))
+                  and hotel_in_map(h.map_point, f.lat, f.lng, ?, ?, ?, ?)
                   and (select count(*) from room_inventory i
                        where i.room_type_id = rt.id and i.stay_date >= ? and i.stay_date < ?
                          and i.total_rooms - i.held_rooms - i.sold_rooms >= ?) = ?
@@ -123,12 +180,14 @@ public class HotelSearch {
                 """, (rs, row) -> new Result(rs.getLong("id"), rs.getString("name"), rs.getString("area"),
                 rs.getObject("star_rating", Integer.class), rs.getBigDecimal("listed_price"),
                 rs.getObject("latitude", Double.class), rs.getObject("longitude", Double.class), rs.getBoolean("verified"), ListingMedia.thumbnail(rs.getObject("hotel_photo", Long.class)),
-                ListingMedia.thumbnail(rs.getObject("room_photo", Long.class)), rs.getLong("room_type_id")),
-                filters.area().strip(), filters.minimumStars(), filters.maximumRate(), filters.latitude(), filters.longitude(),
-                city.strip(), after, category.name(), rooms, guests, checkIn, checkOut, rooms, nights,
+                ListingMedia.thumbnail(rs.getObject("room_photo", Long.class)), rs.getLong("room_type_id"), rs.getString("city")),
+                filters.area().strip(), filters.minimumStars(), filters.maximumRate(), map.latitude(), map.longitude(),
+                city.strip(), after, category.name(), rooms, guests, map.south(), map.west(), map.north(), map.east(),
+                checkIn, checkOut, rooms, nights,
                 checkIn, checkOut, rooms, PAGE_SIZE + 1);
         List<String> areas = after == 0 ? jdbc.queryForList("""
-                select distinct area from hotels where lower(city) = lower(?) and status = 'ACTIVE' order by area limit 100
+                select distinct n.name from hotels h join location_neighbourhoods n on n.id = h.neighbourhood_id
+                where h.city_id in (select destination_cities(?)) and h.status = 'ACTIVE' order by n.name limit 100
                 """, String.class, city.strip()) : List.of();
         if (results.size() <= PAGE_SIZE) return new Page(results, null, areas);
         return new Page(results.subList(0, PAGE_SIZE), results.get(PAGE_SIZE - 1).id(), areas);

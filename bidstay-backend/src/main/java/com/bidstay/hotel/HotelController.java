@@ -3,6 +3,7 @@ package com.bidstay.hotel;
 import com.bidstay.booking.BookingReviews;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,6 +24,16 @@ public class HotelController {
     private final HourlyStays hourly;
     private final BookingReviews reviews;
 
+    @GetMapping("/destinations")
+    public List<String> destinations(@RequestParam String prefix, @RequestParam(defaultValue = "false") boolean hourly) {
+        return search.destinations(prefix, hourly);
+    }
+
+    @GetMapping("/places")
+    public List<HotelSearch.Place> places(@RequestParam String prefix, @RequestParam(defaultValue = "false") boolean hourly) {
+        return search.places(prefix, hourly);
+    }
+
     @GetMapping("/{hotelId}/reviews")
     public List<BookingReviews.PublicReview> reviews(@PathVariable long hotelId) {
         return reviews.published(hotelId);
@@ -34,8 +45,10 @@ public class HotelController {
                                     @RequestParam(defaultValue = "STANDARD") RoomCategory category,
                                     @RequestParam(defaultValue = "1") int rooms,
                                     @RequestParam(defaultValue = "2") int guests,
-                                    @RequestParam(defaultValue = "0") long after) {
-        return hourly.search(city, date, arrival, hours, category, rooms, guests, after);
+                                    @RequestParam(defaultValue = "0") long after,
+                                    @RequestParam(defaultValue = "") String area,
+                                    @ModelAttribute MapSearchFilter map) {
+        return hourly.search(city, date, arrival, hours, category, rooms, guests, after, area, map);
     }
 
     @GetMapping("/search")
@@ -48,10 +61,9 @@ public class HotelController {
                                    @RequestParam(defaultValue = "") String area,
                                    @RequestParam(required = false) Integer minimumStars,
                                    @RequestParam(required = false) BigDecimal maximumRate,
-                                   @RequestParam(required = false) Double latitude,
-                                   @RequestParam(required = false) Double longitude) {
+                                   @ModelAttribute MapSearchFilter map) {
         return search.available(city, checkIn, checkOut, category, rooms, guests, after,
-                new HotelSearch.Filters(area, minimumStars, maximumRate, latitude, longitude));
+                new HotelSearch.Filters(area, minimumStars, maximumRate, map));
     }
 
     @GetMapping("/{hotelId}")

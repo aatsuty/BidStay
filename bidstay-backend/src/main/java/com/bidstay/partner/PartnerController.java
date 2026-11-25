@@ -63,6 +63,25 @@ public class PartnerController {
         return service.register(userId, body);
     }
 
+    @GetMapping("/location-names")
+    public List<String> locationNames(@CallerId Long userId, @RequestParam(defaultValue = "") String prefix,
+                                      @RequestParam(defaultValue = "") String city) {
+        access.requireHotelStaff(userId);
+        return service.locationNames(prefix, city);
+    }
+
+    @GetMapping("/hotels/{hotelId}/map-pin")
+    public MapPin mapPin(@CallerId Long userId, @PathVariable Long hotelId) {
+        access.requireStaffManager(userId, hotelId);
+        return service.mapPin(hotelId);
+    }
+
+    @PutMapping("/hotels/{hotelId}/map-pin")
+    public MapPin updateMapPin(@CallerId Long userId, @PathVariable Long hotelId, @RequestBody MapPin pin) {
+        access.requireStaffManager(userId, hotelId);
+        return service.updateMapPin(userId, hotelId, pin);
+    }
+
     @GetMapping("/hotels/{hotelId}/dashboard")
     public Dashboard dashboard(@CallerId Long userId, @PathVariable Long hotelId) {
         access.requireHotelAccess(userId, hotelId);

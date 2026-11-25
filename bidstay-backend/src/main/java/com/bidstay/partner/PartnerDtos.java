@@ -20,9 +20,12 @@ public final class PartnerDtos {
                             @NotNull @DecimalMin("1") BigDecimal listedPrice, @NotNull @DecimalMin("1") BigDecimal minPrice,
                             @Min(1) @Max(500) int totalRooms) {}
 
-    public record RegisterHotel(@NotBlank String name, @NotBlank String city, @NotBlank String area, @NotBlank String address,
+    public record RegisterHotel(@NotBlank String name, @NotBlank @Size(max = 80) String city,
+                                @NotBlank @Size(max = 80) String area, @NotBlank String address,
                                 @Min(0) @Max(5) int starRating, String gstNumber, String contactPhone,
-                                @NotEmpty @Valid List<RoomInput> rooms) {}
+                                @NotEmpty @Valid List<RoomInput> rooms, Double latitude, Double longitude) {}
+
+    public record MapPin(Double latitude, Double longitude) {}
 
     public record DocumentInput(@NotBlank @Size(max = 300) String reference) {}
 

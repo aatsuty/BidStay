@@ -37,6 +37,7 @@ export interface StayPolicy { checkInFrom: string | null; checkOutBy: string | n
 export interface RoomInput { category: RoomCategory; name: string; maxGuests: number; listedPrice: number; minPrice: number; totalRooms: number }
 export interface RegisterHotel {
   name: string; city: string; area: string; address: string; starRating: number; gstNumber?: string; contactPhone?: string; rooms: RoomInput[];
+  latitude?: number; longitude?: number;
 }
 
 // ---- admin

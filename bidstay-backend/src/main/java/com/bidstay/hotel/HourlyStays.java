@@ -63,25 +63,39 @@ public class HourlyStays {
     @Transactional(readOnly = true)
     public Page search(String city, LocalDate date, LocalTime arrival, int hours, RoomCategory category,
                        int rooms, int guests, long after) {
-        if (city.isBlank() || city.length() > 80 || after < 0 || rooms < 1 || rooms > 10 || guests < 1 || guests > 40) {
+        return search(city, date, arrival, hours, category, rooms, guests, after, "", MapSearchFilter.NONE);
+    }
+
+    @Transactional(readOnly = true)
+    public Page search(String city, LocalDate date, LocalTime arrival, int hours, RoomCategory category,
+                       int rooms, int guests, long after, String area, MapSearchFilter map) {
+        if (city.isBlank() || city.length() > 80 || area.length() > 100 || after < 0
+                || rooms < 1 || rooms > 10 || guests < 1 || guests > 40) {
             throw ApiException.invalid("Check the destination, guest count and room count");
         }
+        map.validate();
         Window window = window(date, arrival, hours);
         List<Listing> listings = jdbc.query("""
                 select h.id, h.name, h.area, r.id, r.name,
                        case when ? = 3 then hr.three_hours else hr.six_hours end,
                        (select m.id from hotel_media m where m.hotel_id = h.id and m.status = 'APPROVED'
                         and (m.room_type_id = r.id or m.room_type_id is null)
-                        order by m.room_type_id nulls last, m.id limit 1)
-                from hotels h join room_types r on r.hotel_id = h.id
+                        order by m.room_type_id nulls last, m.id limit 1),
+                       c.name, h.map_point[1], h.map_point[0]
+                from hotels h join location_cities c on c.id = h.city_id join room_types r on r.hotel_id = h.id
                 join hourly_stay_rates hr on hr.room_type_id = r.id and hr.enabled
-                where h.status = 'ACTIVE' and lower(h.city) = lower(?) and h.id > ?
+                where h.status = 'ACTIVE' and h.city_id in (select destination_cities(?)) and h.id > ?
                   and r.category = ? and r.max_guests * ? >= ?
+                  and (? = '' or h.neighbourhood_id in
+                        (select id from location_neighbourhoods where city_id = h.city_id and name_key = lower(?)))
+                  and hotel_in_map(h.map_point, round(?::numeric, 2)::float8, round(?::numeric, 2)::float8, ?, ?, ?, ?)
                   and room_has_capacity(r.id, ?, ?, ?)
                 order by h.id limit ?
                 """, (rs, row) -> new Listing(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getLong(4),
-                rs.getString(5), rs.getBigDecimal(6), ListingMedia.thumbnail(rs.getObject(7, Long.class))),
-                hours, city.strip(), after, category.name(), rooms, guests, Timestamp.from(window.arrival()),
+                rs.getString(5), rs.getBigDecimal(6), ListingMedia.thumbnail(rs.getObject(7, Long.class)), rs.getString(8),
+                rs.getObject(9, Double.class), rs.getObject(10, Double.class)),
+                hours, city.strip(), after, category.name(), rooms, guests, area.strip(), area.strip(),
+                map.latitude(), map.longitude(), map.south(), map.west(), map.north(), map.east(), Timestamp.from(window.arrival()),
                 Timestamp.from(window.blockedUntil()), rooms, PAGE_SIZE + 1);
         if (listings.size() <= PAGE_SIZE) return new Page(listings, null);
         return new Page(listings.subList(0, PAGE_SIZE), listings.get(PAGE_SIZE - 1).hotelId());
@@ -122,7 +136,7 @@ public class HourlyStays {
 
     public record Window(Instant arrival, Instant departure, Instant blockedUntil) {}
     public record Listing(long hotelId, String hotelName, String area, long roomTypeId, String roomName,
-                          BigDecimal ratePerRoom, String photo) {}
+                          BigDecimal ratePerRoom, String photo, String city, Double latitude, Double longitude) {}
     public record Page(List<Listing> hotels, Long nextCursor) {}
     public record RoomRates(long roomTypeId, String name, boolean enabled, BigDecimal threeHours, BigDecimal sixHours) {}
     public record RatesChange(@NotNull Boolean enabled,

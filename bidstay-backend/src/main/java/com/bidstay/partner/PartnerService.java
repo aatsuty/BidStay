@@ -47,16 +47,20 @@ public class PartnerService {
     @Transactional(readOnly = true)
     public List<MyHotel> myHotels(List<Long> hotelIds) {
         return hotels.findAllById(hotelIds).stream()
+                .sorted(Comparator.comparing(Hotel::getId))
                 .map(h -> new MyHotel(h.getId(), h.getName(), h.getArea(), h.getStatus(), h.getRejectionReason())).toList();
     }
 
     @Transactional
     public MyHotel register(Long userId, RegisterHotel cmd) {
+        MapSearchFilter.validateCoordinates(cmd.latitude(), cmd.longitude());
         Hotel h = new Hotel();
         h.setName(cmd.name().trim());
         h.setCity(cmd.city().trim());
         h.setArea(cmd.area().trim());
         h.setAddress(cmd.address().trim());
+        h.setLatitude(cmd.latitude());
+        h.setLongitude(cmd.longitude());
         h.setStarRating(cmd.starRating());
         h.setGstNumber(cmd.gstNumber());
         h.setContactPhone(cmd.contactPhone());
@@ -82,6 +86,39 @@ public class PartnerService {
                 "*Welcome to BidStay.* Add your four documents (GST, licence, owner ID, photos) so our team can verify "
                         + h.getName() + ". Bid requests will appear in this chat once you are live.", null);
         return new MyHotel(h.getId(), h.getName(), h.getArea(), h.getStatus(), null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> locationNames(String prefix, String city) {
+        if (prefix.length() > 80 || city.length() > 80) throw ApiException.invalid("Location name is too long");
+        String term = prefix.strip().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        if (city.isBlank()) {
+            return jdbc.queryForList("""
+                    select name from location_cities where name_key like lower(?) escape '!'
+                    order by name_key limit 8
+                    """, String.class, term);
+        }
+        return jdbc.queryForList("""
+                select distinct name from location_neighbourhoods
+                where city_id in (select destination_cities(?)) and name_key like lower(?) escape '!'
+                order by name limit 8
+                """, String.class, city, term);
+    }
+
+    @Transactional(readOnly = true)
+    public MapPin mapPin(Long hotelId) {
+        Hotel hotel = hotels.findById(hotelId).orElseThrow(() -> ApiException.notFound("Hotel"));
+        return new MapPin(hotel.getLatitude(), hotel.getLongitude());
+    }
+
+    @Transactional
+    public MapPin updateMapPin(Long actor, Long hotelId, MapPin pin) {
+        MapSearchFilter.validateCoordinates(pin.latitude(), pin.longitude());
+        Hotel hotel = hotels.findById(hotelId).orElseThrow(() -> ApiException.notFound("Hotel"));
+        hotel.setLatitude(pin.latitude());
+        hotel.setLongitude(pin.longitude());
+        audit.record(actor, AuditTrail.Action.HOTEL_MAP_PIN_UPDATED, hotelId, hotelId);
+        return pin;
     }
 
     @Transactional(readOnly = true)

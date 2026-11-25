@@ -133,7 +133,8 @@ public class GuestAlerts {
                     select s.id as search_id, s.guest_id, s.budget, h.id as hotel_id, h.name from due s
                     cross join lateral (
                         select h.id,h.name from hotels h join room_types r on r.hotel_id = h.id
-                        where h.status = 'ACTIVE' and lower(h.city) = s.city and (s.area = '' or lower(h.area) = s.area)
+                        where h.status = 'ACTIVE' and h.city_id in (select destination_cities(s.city))
+                           and (s.area = '' or lower(btrim(h.area)) = s.area)
                            and r.category = s.category
                            and r.listed_price <= s.budget
                            and r.max_guests * s.rooms >= s.guests
@@ -166,8 +167,8 @@ public class GuestAlerts {
                     cross join lateral (
                         select s.id from saved_stay_searches s
                         where s.enabled and s.id > j.after_search_id and s.check_in >= ?
-                          and s.city = lower(h.city) and s.category = r.category
-                          and (s.area = '' or s.area = lower(h.area))
+                          and s.city in (select city_destination_keys(h.city_id)) and s.category = r.category
+                          and (s.area = '' or s.area = lower(btrim(h.area)))
                           and s.check_in < j.until_date and s.check_out + 1 > j.from_date
                           and r.listed_price <= s.budget and r.max_guests * s.rooms >= s.guests
                           and not exists(select 1 from guest_alerts g where g.guest_id = s.guest_id
