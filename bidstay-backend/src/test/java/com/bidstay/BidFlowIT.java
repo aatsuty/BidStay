@@ -458,6 +458,52 @@ class BidFlowIT {
     }
 
     @Test
+    void cityRegionNeighbourhoodAndMapFiltersRespectAvailabilityForBothStayTypes() throws Exception {
+        long hotelId = jdbc.queryForObject("""
+                insert into hotels (name, city, area, address, status, latitude, longitude)
+                values ('NCR QA Hotel', 'Gurgaon', 'Sector 44 QA', 'Test address', 'ACTIVE', 28.4638, 77.0717) returning id
+                """, Long.class);
+        long room = jdbc.queryForObject("""
+                insert into room_types (hotel_id, category, name, max_guests, listed_price, min_price, total_rooms)
+                values (?, 'STANDARD', 'Standard', 2, 2100, 1400, 2) returning id
+                """, Long.class, hotelId);
+        LocalDate date = LocalDate.now().plusDays(17);
+        inventory.ensureRange(room, date, date.plusDays(2), 2);
+        jdbc.update("insert into hotel_stay_policies (hotel_id, check_in_from, check_out_by) values (?, time '14:00', time '11:00')", hotelId);
+        jdbc.update("insert into hourly_stay_rates values (?, true, 800, 1400)", room);
+
+        mvc.perform(get("/api/v1/hotels/places").param("prefix", "sector").param("hourly", "true"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].label").value("Sector 44 QA, Gurugram"))
+                .andExpect(jsonPath("$[0].kind").value("NEIGHBOURHOOD"));
+        mvc.perform(get("/api/v1/hotels/places").param("prefix", "delhi ncr"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].kind").value("REGION"));
+        mvc.perform(get("/api/v1/hotels/search").param("city", "Delhi").param("area", "Sector 44 QA")
+                        .param("checkIn", date.toString()).param("checkOut", date.plusDays(1).toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels.length()").value(0));
+        mvc.perform(get("/api/v1/hotels/search").param("city", "Delhi NCR").param("area", "Sector 44 QA")
+                        .param("checkIn", date.toString()).param("checkOut", date.plusDays(1).toString())
+                        .param("south", "28.40").param("north", "28.50").param("west", "77.00").param("east", "77.10"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels[0].id").value(hotelId))
+                .andExpect(jsonPath("$.hotels[0].latitude").value(28.46));
+        mvc.perform(get("/api/v1/hotels/hourly").param("city", "Delhi NCR").param("date", date.toString())
+                        .param("arrival", "12:00").param("hours", "3").param("south", "28.60")
+                        .param("north", "28.70").param("west", "77.00").param("east", "77.30"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels[?(@.hotelId == " + hotelId + ")]").isEmpty());
+        mvc.perform(get("/api/v1/hotels/hourly").param("city", "Gurugram").param("date", date.toString())
+                        .param("arrival", "12:00").param("hours", "6").param("latitude", "28.46").param("longitude", "77.07"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hotels[0].hotelId").value(hotelId));
+        mvc.perform(get("/api/v1/hotels/hourly").param("city", "Gurgaon").param("date", date.toString())
+                        .param("arrival", "12:00").param("hours", "3").param("south", "28.4"))
+                .andExpect(status().isUnprocessableEntity());
+
+        String pin = "/api/v1/partner/hotels/" + hotelId + "/map-pin";
+        mvc.perform(get(pin).header("X-User-Id", 3)).andExpect(status().isForbidden());
+        mvc.perform(put(pin).header("X-User-Id", 4).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\":28.46123,\"longitude\":77.07987}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.latitude").value(28.46123));
+    }
+
+    @Test
     void hourlyAndOvernightCheckoutsCompeteForSameCapacity() throws Exception {
         Long hotelId = jdbc.queryForObject("""
                 insert into hotels (name, city, area, address, status)

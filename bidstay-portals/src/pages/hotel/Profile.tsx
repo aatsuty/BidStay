@@ -7,6 +7,7 @@ import { DOC_LABEL, ErrorBox, HotelStatusBadge, Loading, PageHead } from '../../
 import { useHotel } from './HotelContext';
 import StaffAccess from './StaffAccess';
 import StayPolicyForm from './StayPolicyForm';
+import MapPinForm from './MapPinForm';
 
 export default function Profile() {
   const { hotel } = useHotel();
@@ -51,6 +52,7 @@ export default function Profile() {
         ))}
       </div>
       <StayPolicyForm key={`policy-${hotel.id}`} hotelId={hotel.id} />
+      <MapPinForm key={`map-pin-${hotel.id}`} hotelId={hotel.id} />
       <StaffAccess key={`staff-${hotel.id}`} hotelId={hotel.id} />
     </>
   );

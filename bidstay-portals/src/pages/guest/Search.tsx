@@ -5,19 +5,19 @@ import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDow
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { todayISO } from '../../lib/format';
-import { deviceRequest } from '../../lib/portal-device';
 import { useSession } from '../../lib/session';
 import DestinationField from './DestinationField';
+import { useMapSearch } from './useMapSearch';
 import HotelDetails from './HotelDetails';
 import StayTypeNav from './StayTypeNav';
 import { useGuest } from './GuestShell';
 import { useDirectCheckout } from './useDirectCheckout';
-import { addDays, mediaUrl, rupees, type Bid, type HotelPage, type HotelResult } from './models';
+import { addDays, destinationLabel, mediaUrl, rupees, type Bid, type HotelPage, type HotelResult } from './models';
 
 const MAX_SELECTED = 50;
 const HotelMap = lazy(() => import('./HotelMap'));
 const ROOM_OPTIONS = ['STANDARD', 'DELUXE', 'SUITE'] as const;
-type SearchFields = { city: string; checkIn: string; checkOut: string; rooms: number; guests: number; category: typeof ROOM_OPTIONS[number] };
+type SearchFields = { city: string; area: string; checkIn: string; checkOut: string; rooms: number; guests: number; category: typeof ROOM_OPTIONS[number] };
 
 function initialSearch(params: URLSearchParams): SearchFields {
   const today = todayISO();
@@ -32,7 +32,7 @@ function initialSearch(params: URLSearchParams): SearchFields {
     const value = Number(params.get(key));
     return Number.isInteger(value) && value >= 1 && value <= max ? value : fallback;
   };
-  return { city: params.get('city')?.trim().slice(0, 80) ?? '', checkIn, checkOut,
+  return { city: params.get('city')?.trim().slice(0, 80) ?? '', area: params.get('area')?.trim().slice(0, 100) ?? '', checkIn, checkOut,
     rooms: integer('rooms', 10, 1), guests: integer('guests', 40, 2), category };
 }
 
@@ -47,12 +47,10 @@ export default function Search() {
   const [form, setForm] = useState(() => initialSearch(params));
   const [criteria, setCriteria] = useState(form);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [area, setArea] = useState(() => params.get('area')?.slice(0, 100) ?? '');
+  const { area } = criteria;
   const [minimumStars, setMinimumStars] = useState('');
   const [maximumRate, setMaximumRate] = useState('');
-  const [nearby, setNearby] = useState<{ latitude: string; longitude: string }>();
-  const [locating, setLocating] = useState(false);
-  const [locationError, setLocationError] = useState('');
+  const location = useMapSearch(() => setSelected(new Set()));
   const [panel, setPanel] = useState<'map' | 'list'>('map');
   const [price, setPrice] = useState(() => {
     const budget = Number(params.get('budget'));
@@ -61,13 +59,13 @@ export default function Search() {
   const [details, setDetails] = useState<HotelResult>();
 
   const hotelQuery = useInfiniteQuery({
-    queryKey: ['hotel-search', baseUrl, criteria, area, minimumStars, maximumRate, nearby],
+    queryKey: ['hotel-search', baseUrl, criteria, minimumStars, maximumRate, location.nearby, location.bounds],
     enabled: !!criteria.city,
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({
-        ...criteria, rooms: String(criteria.rooms), guests: String(criteria.guests), after: String(pageParam), area,
-        ...(minimumStars ? { minimumStars } : {}), ...(maximumRate ? { maximumRate } : {}), ...nearby,
+        ...criteria, rooms: String(criteria.rooms), guests: String(criteria.guests), after: String(pageParam),
+        ...(minimumStars ? { minimumStars } : {}), ...(maximumRate ? { maximumRate } : {}), ...location.nearby, ...location.bounds,
       });
       return api.get<HotelPage>('/api/v1/hotels/search?' + params);
     },
@@ -78,7 +76,8 @@ export default function Search() {
   const areas = hotelQuery.data?.pages[0]?.areas ?? [];
   const visible = hotels;
   const hasMapLocations = visible.some((hotel) => hotel.latitude != null && hotel.longitude != null);
-  const showMap = panel === 'map' && hasMapLocations;
+  const canShowMap = hasMapLocations || !!location.bounds;
+  const showMap = panel === 'map' && canShowMap;
   const selectableHotels = visible.slice(0, MAX_SELECTED);
   const allSelected = selectableHotels.length > 0 && selectableHotels.every((hotel) => selected.has(hotel.id));
   const targets = hotels.filter((hotel) => selected.has(hotel.id));
@@ -93,7 +92,7 @@ export default function Search() {
   });
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/v1/guest/saved-searches', { ...criteria, area, budget: offer }),
+    mutationFn: () => api.post('/api/v1/guest/saved-searches', { ...criteria, budget: offer }),
   });
 
   const bookListed = useMutation({
@@ -117,10 +116,7 @@ export default function Search() {
     if (!next.city) return;
     setSelected(new Set());
     setForm(next);
-    if (criteria.city.toLowerCase() !== next.city.toLowerCase()) {
-      setArea('');
-      setNearby(undefined);
-    }
+    if (criteria.city.toLowerCase() !== next.city.toLowerCase() || criteria.area !== next.area) location.reset();
     if (JSON.stringify(next) === JSON.stringify(criteria)) void hotelQuery.refetch();
     setCriteria(next);
     send.reset();
@@ -139,33 +135,8 @@ export default function Search() {
     setPrice(String(Math.min(100_000, Math.max(1, (offer || 0) + delta))));
   }
 
-  function useLocationFilter() {
-    setLocationError('');
-    if (nearby) {
-      setNearby(undefined);
-      setSelected(new Set());
-      return;
-    }
-    setLocating(true);
-    function applyLocation(coords: { latitude: string; longitude: string }) {
-      setLocating(false);
-      setNearby(coords);
-      setSelected(new Set());
-    }
-    function locationUnavailable() {
-      setLocating(false);
-      setLocationError('Location is unavailable. Choose a neighbourhood instead.');
-    }
-    const onDevice = deviceRequest<{ latitude: string; longitude: string }>({ action: 'location' });
-    if (onDevice) void onDevice.then(applyLocation, locationUnavailable);
-    else if (navigator.geolocation) navigator.geolocation.getCurrentPosition(({ coords }) => applyLocation({
-      latitude: coords.latitude.toFixed(2), longitude: coords.longitude.toFixed(2),
-    }), locationUnavailable, { timeout: 8000, maximumAge: 600_000 });
-    else locationUnavailable();
-  }
-
   const searchDirty = Object.keys(criteria).some((key) => criteria[key as keyof SearchFields] !== form[key as keyof SearchFields]);
-  const hourlyUrl = '/hourly?' + new URLSearchParams({ city: form.city, date: form.checkIn,
+  const hourlyUrl = '/hourly?' + new URLSearchParams({ city: form.city, area: form.area, date: form.checkIn,
     category: form.category, guests: String(form.guests), rooms: String(form.rooms) });
 
   return (
@@ -182,7 +153,8 @@ export default function Search() {
       </section>
       <form onSubmit={runSearch} className="guest-search-form" id="find-hotels">
         <StayTypeNav hourlyUrl={hourlyUrl} />
-        <DestinationField city={form.city} onChange={(city) => change('city', city)} />
+        <DestinationField city={destinationLabel(form.city, form.area)} onChange={(city) => setForm((previous) => ({ ...previous, city, area: '' }))}
+          onChoose={({ city, area }) => setForm((previous) => ({ ...previous, city, area }))} />
         <label><span><CalendarDays size={16} /> Check-in</span><input type="date" required min={todayISO()} value={form.checkIn} onChange={(event) => {
           const checkIn = event.target.value;
           if (!checkIn) return;
@@ -196,13 +168,13 @@ export default function Search() {
       {criteria.city && <section className="guest-results" aria-labelledby="results-title">
         <div className="guest-results-main">
           <div className="guest-section-head">
-            <div><h2 id="results-title">Choose your hotels</h2><p>{hotelQuery.isPending ? 'Checking room availability…' : `${visible.length}${hotelQuery.hasNextPage ? '+' : ''} available in ${criteria.city}`}</p></div>
+            <div><h2 id="results-title">Choose your hotels</h2><p>{hotelQuery.isPending ? 'Checking room availability…' : `${visible.length}${hotelQuery.hasNextPage ? '+' : ''} available in ${destinationLabel(criteria.city, area)}`}</p></div>
             <div className="guest-result-actions">
               {visible.length > 1 && <button className="guest-quiet" type="button" onClick={() =>
                 setSelected(allSelected ? new Set() : new Set(selectableHotels.map((hotel) => hotel.id)))}>
                 {allSelected ? 'Clear selection' : visible.length > MAX_SELECTED ? `Select first ${MAX_SELECTED}` : 'Select all'}
               </button>}
-              {hasMapLocations && <div className="guest-switch" aria-label="Hotel view">
+              {canShowMap && <div className="guest-switch" aria-label="Hotel view">
                 <button aria-pressed={panel === 'map'} onClick={() => setPanel('map')}><Map size={16} /> Map</button>
                 <button aria-pressed={panel === 'list'} onClick={() => setPanel('list')}><List size={16} /> List</button>
               </div>}
@@ -210,7 +182,10 @@ export default function Search() {
           </div>
           <div className="guest-filters">
             <label><span className="guest-visually-hidden">Neighbourhood</span><select value={areas.find((option) => option.toLowerCase() === area.toLowerCase()) ?? area} onChange={(event) => {
-              setArea(event.target.value); setSelected(new Set());
+              const area = event.target.value;
+              setForm((previous) => ({ ...previous, area }));
+              setCriteria((previous) => ({ ...previous, area }));
+              location.changeBounds();
             }}><option value="">All neighbourhoods</option>{area && !areas.some((option) => option.toLowerCase() === area.toLowerCase()) && <option value={area}>{area}</option>}{areas.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></label>
             <label><span className="guest-visually-hidden">Room type</span><select value={form.category} onChange={(event) => {
               const category = event.target.value as SearchFields['category'];
@@ -224,14 +199,17 @@ export default function Search() {
             <label><span className="guest-visually-hidden">Maximum listed nightly rate</span><select value={maximumRate} onChange={(event) => {
               setMaximumRate(event.target.value); setSelected(new Set());
             }}><option value="">Any listed rate</option>{[1500, 2500, 5000, 10000].map((rate) => <option key={rate} value={rate}>Up to {rupees.format(rate)} / night</option>)}</select><ChevronDown size={15} /></label>
-            <button type="button" className="guest-quiet" aria-pressed={!!nearby} disabled={locating} onClick={useLocationFilter}>
-              <LocateFixed size={15} /> {locating ? 'Finding location…' : nearby ? 'Within 5 km' : 'Near me'}
+            <button type="button" className="guest-quiet" aria-pressed={!!location.nearby} disabled={location.locating} onClick={location.toggleNearby}>
+              <LocateFixed size={15} /> {location.locating ? 'Finding location…' : location.nearby ? 'Within 5 km' : 'Near me'}
             </button>
+            {location.bounds && <button type="button" className="guest-quiet" onClick={() => location.changeBounds()}>Clear map area</button>}
             {visible.length > 0 && <button type="button" className="guest-quiet" onClick={() => setSelected((previous) => new Set([...previous, ...visible.map((hotel) => hotel.id)].slice(0, MAX_SELECTED)))}>Select visible</button>}
           </div>
-          {locationError && <p role="status" className="guest-price-hint">{locationError}</p>}
+          {location.error && <p role="status" className="guest-price-hint">{location.error}</p>}
           <ErrorBox error={hotelQuery.error} />
-          {showMap && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}><HotelMap hotels={visible} selected={selected} toggle={toggle} /></Suspense>}
+          {showMap && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}>
+            <HotelMap hotels={visible} selected={selected} toggle={toggle} appliedBounds={location.bounds} onSearchArea={location.changeBounds} />
+          </Suspense>}
           <div className={showMap ? 'guest-hotels beneath-map' : 'guest-hotels'}>
             {!hotelQuery.isPending && !hotelQuery.error && !visible.length && <div className="guest-empty"><BedDouble size={25} /><h3>No available hotels</h3><p>Try changing your dates, room type or guest count.</p></div>}
             {visible.map((hotel) => <HotelRow key={hotel.id} hotel={hotel} selected={selected.has(hotel.id)} toggle={() => toggle(hotel.id)} openDetails={() => setDetails(hotel)} baseUrl={baseUrl} />)}
@@ -296,7 +274,7 @@ function HotelRow({ hotel, selected, toggle, openDetails, baseUrl }: {
       </button>
       <div className="guest-hotel-description">
         <button className="guest-hotel-name" type="button" onClick={openDetails}>{hotel.name}</button>
-        <span><MapPin size={13} /> {hotel.area}
+        <span><MapPin size={13} /> {hotel.city ? destinationLabel(hotel.city, hotel.area) : hotel.area}
           {hotel.starRating != null && hotel.starRating > 0 && <span><Star size={12} /> {hotel.starRating}-star</span>}
           {hotel.verified && <span><ShieldCheck size={13} /> Verified</span>}
         </span>

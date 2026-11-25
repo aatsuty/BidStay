@@ -1,9 +1,12 @@
 import type { StayPolicy } from '../../lib/types';
 
+export const destinationLabel = (city: string, area: string) => area ? area + ', ' + city : city;
+
 export interface HotelResult {
   id: number;
   name: string;
   area: string;
+  city?: string;
   starRating?: number;
   listedPrice: number;
   latitude?: number;

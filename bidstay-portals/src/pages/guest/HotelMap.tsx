@@ -2,17 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rupees, type HotelResult } from './models';
+import type { MapBounds } from './useMapSearch';
 
-export default function HotelMap({ hotels, selected, toggle }: {
-  hotels: HotelResult[];
-  selected: ReadonlySet<number>;
+const WRAP = (longitude: number) => ((longitude + 180) % 360 + 360) % 360 - 180;
+
+export default function HotelMap({ hotels, selected, toggle, onSearchArea, appliedBounds }: {
+  hotels: Pick<HotelResult, 'id' | 'name' | 'latitude' | 'longitude' | 'listedPrice'>[];
+  selected?: ReadonlySet<number>;
   toggle: (id: number) => void;
+  onSearchArea: (bounds: MapBounds) => void;
+  appliedBounds?: MapBounds;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const markers = useRef<L.LayerGroup | null>(null);
   const latestToggle = useRef(toggle);
-  const lastHotels = useRef<HotelResult[] | null>(null);
+  const lastHotels = useRef<typeof hotels | null>(null);
   const [tilesUnavailable, setTilesUnavailable] = useState(false);
 
   useEffect(() => { latestToggle.current = toggle; }, [toggle]);
@@ -49,7 +54,7 @@ export default function HotelMap({ hotels, selected, toggle }: {
       if (hotel.latitude == null || hotel.longitude == null) continue;
       const point: L.LatLngTuple = [hotel.latitude, hotel.longitude];
       positions.push(point);
-      const active = selected.has(hotel.id);
+      const active = selected?.has(hotel.id);
       const price = rupees.format(hotel.listedPrice);
       L.marker(point, {
         icon: L.divIcon({ className: 'guest-map-marker', html: `<span class="${active ? 'active' : ''}">${price}</span>`, iconSize: [60, 32], iconAnchor: [30, 16] }),
@@ -58,14 +63,32 @@ export default function HotelMap({ hotels, selected, toggle }: {
         zIndexOffset: active ? 50 : 0,
       }).on('click', () => latestToggle.current(hotel.id)).addTo(layer);
     }
-    if (lastHotels.current !== hotels && positions.length) {
+    if (!lastHotels.current && appliedBounds) {
+      const west = Number(appliedBounds.west);
+      const east = Number(appliedBounds.east);
+      map.current?.fitBounds([[Number(appliedBounds.south), west], [Number(appliedBounds.north), east < west ? east + 360 : east]],
+        { animate: false });
+    } else if (positions.length && !appliedBounds && lastHotels.current !== hotels) {
       map.current?.fitBounds(L.latLngBounds(positions), { padding: [45, 45], maxZoom: 13, animate: false });
     }
     lastHotels.current = hotels;
-  }, [hotels, selected]);
+  }, [hotels, selected, appliedBounds]);
+
+  function searchArea() {
+    if (!map.current || !lastHotels.current) return;
+    const bounds = map.current.getBounds();
+    const fullWidth = bounds.getEast() - bounds.getWest() >= 360;
+    onSearchArea({
+      south: Math.max(-90, bounds.getSouth()).toFixed(5),
+      north: Math.min(90, bounds.getNorth()).toFixed(5),
+      west: (fullWidth ? -180 : WRAP(bounds.getWest())).toFixed(5),
+      east: (fullWidth ? 180 : WRAP(bounds.getEast())).toFixed(5),
+    });
+  }
 
   return <div className="guest-map-frame">
     <div className="guest-map" ref={root} aria-label="Map of approximate hotel locations" />
+    <button type="button" className="guest-quiet guest-map-search" onClick={searchArea}>Search this area</button>
     {tilesUnavailable && <p className="guest-map-notice" role="status">Map background unavailable. You can still select hotels from the list.</p>}
   </div>;
 }

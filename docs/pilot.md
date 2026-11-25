@@ -36,6 +36,10 @@ The guest receipt records the payment and any recorded refund reference. Agree o
 
 To test listed-price checkout, open a dated hotel result and choose **Book at listed price**. For hourly checkout, first save the overnight policy in **Profile & documents**, then publish 3- and 6-hour prices for the room under **Rates & rules → Hourly stays**. Select **Hourly** above the search form and choose an arrival time. Published 3- and 6-hour room rates also appear in the property gallery. Complete the booking and verify the slot in both **My trips** and the hotel’s **Bookings** screen.
 
+Guests can search by city, neighbourhood, or region in both stay modes. The pilot **Delhi NCR** region includes Delhi, Noida, Greater Noida, Gurugram, Ghaziabad, and Faridabad. City and neighbourhood suggestions reflect active listings, and hourly suggestions require a published hourly rate. **Search this area** filters results to the visible map within the selected destination. **Near me** applies a 5 km radius. Both filters use the same approximate coordinates that the guest sees.
+
+Flyway maps existing hotel city and area names to catalog IDs and retains the original labels. Existing coordinates remain usable. Hotel managers can add or correct a pin under **Profile & documents**. New hotels can set an optional pin during registration. The location search runs on PostgreSQL using a native spatial index.
+
 Create approved WhatsApp templates with the configured `WHATSAPP_TEMPLATE_LANGUAGE`. The placeholders must match this order.
 
 | Template variable | Body placeholders |

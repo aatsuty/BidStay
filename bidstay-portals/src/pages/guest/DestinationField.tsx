@@ -4,8 +4,10 @@ import { MapPin } from 'lucide-react';
 import { useApi } from '../../lib/api';
 import { useSession } from '../../lib/session';
 
-export default function DestinationField({ city, onChange, hourly = false }: {
-  city: string; onChange: (city: string) => void; hourly?: boolean;
+export type Place = { label: string; city: string; area: string; kind: 'CITY' | 'NEIGHBOURHOOD' | 'REGION' };
+
+export default function DestinationField({ city, onChange, onChoose, hourly = false }: {
+  city: string; onChange: (city: string) => void; onChoose: (place: Place) => void; hourly?: boolean;
 }) {
   const api = useApi();
   const { baseUrl } = useSession();
@@ -24,7 +26,7 @@ export default function DestinationField({ city, onChange, hourly = false }: {
   const ready = debounced === prefix && prefix.length >= 2;
   const suggestions = useQuery({
     queryKey: ['destinations', baseUrl, debounced, hourly],
-    queryFn: () => api.get<string[]>('/api/v1/hotels/destinations?' + new URLSearchParams({
+    queryFn: () => api.get<Place[]>('/api/v1/hotels/places?' + new URLSearchParams({
       prefix: debounced, hourly: String(hourly),
     })),
     enabled: open && ready,
@@ -37,13 +39,13 @@ export default function DestinationField({ city, onChange, hourly = false }: {
   useEffect(() => {
     if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' });
   }, [activeId]);
-  const hint = prefix.length < 2 ? 'Type at least 2 letters to find a city.'
-    : !ready || suggestions.isPending ? 'Finding cities…'
-      : suggestions.isError ? 'City suggestions are unavailable. You can still enter a city.'
-        : !cities.length ? 'No matching cities with published stays.' : '';
+  const hint = prefix.length < 2 ? 'Type at least 2 letters to find a destination.'
+    : !ready || suggestions.isPending ? 'Finding destinations…'
+      : suggestions.isError ? 'Suggestions are unavailable. You can still enter a city.'
+        : !cities.length ? 'No matching destinations with published stays.' : '';
 
-  function choose(name: string) {
-    onChange(name);
+  function choose(place: Place) {
+    onChoose(place);
     setActive(-1);
     setOpen(false);
   }
@@ -81,13 +83,13 @@ export default function DestinationField({ city, onChange, hourly = false }: {
         aria-autocomplete="list" aria-expanded={listVisible} aria-controls={listVisible ? listId : undefined}
         aria-activedescendant={activeId}
         aria-describedby={open && hint ? hintId : undefined}
-        placeholder="Search for a city" autoComplete="off" enterKeyHint="search"
-        required pattern=".*\S.*" maxLength={80} />
+        placeholder="City, region or neighbourhood" autoComplete="off" enterKeyHint="search"
+        required pattern=".*\S.*" maxLength={182} />
     </label>
-    {listVisible && <ul id={listId} className="guest-destination-popup" role="listbox" aria-label="Matching cities">
-      {cities.map((name, index) => <li key={name} id={listId + '-' + index} role="option"
-        aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(name)}>
-        <MapPin size={15} /> {name}
+    {listVisible && <ul id={listId} className="guest-destination-popup" role="listbox" aria-label="Matching destinations">
+      {cities.map((place, index) => <li key={place.kind + place.label} id={listId + '-' + index} role="option"
+        aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(place)}>
+        <MapPin size={15} /> {place.label}
       </li>)}
     </ul>}
     {open && hint && <p id={hintId} className="guest-destination-popup guest-destination-hint" role="status">{hint}</p>}
