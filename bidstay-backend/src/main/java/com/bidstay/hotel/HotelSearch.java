@@ -21,6 +21,25 @@ public class HotelSearch {
     private final BidStayProperties properties;
     private final Clock clock;
 
+    public List<String> destinations(String prefix, boolean hourly) {
+        String term = prefix.strip();
+        if (term.length() > 80) throw ApiException.invalid("Destination is too long");
+        if (term.length() < 2) return List.of();
+        String pattern = term.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        return jdbc.queryForList("""
+                select min(h.city)
+                from hotels h
+                where h.status = 'ACTIVE' and lower(h.city) like lower(?) escape '!'
+                  and (not ? or exists (
+                      select 1 from room_types r join hourly_stay_rates rates on rates.room_type_id = r.id
+                      where r.hotel_id = h.id and rates.enabled
+                  ))
+                group by lower(h.city)
+                order by lower(h.city)
+                limit 8
+                """, String.class, pattern, hourly);
+    }
+
     public record Result(long id, String name, String area, Integer starRating, BigDecimal listedPrice,
                          Double latitude, Double longitude, boolean verified, String hotelPhoto, String roomPhoto,
                          long roomTypeId) {}

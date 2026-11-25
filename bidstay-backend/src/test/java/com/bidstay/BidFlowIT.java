@@ -55,6 +55,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import static org.hamcrest.Matchers.equalToIgnoringCase;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -439,6 +440,24 @@ class BidFlowIT {
     }
 
     @Test
+    void destinationSuggestionsAreCaseInsensitiveAndOnlyExposeActiveCities() throws Exception {
+        jdbc.update("""
+                insert into hotels (name, city, area, address, status) values
+                    ('City QA Central', 'City QA', 'Downtown', 'Test address', 'ACTIVE'),
+                    ('City QA East', 'city qa', 'East', 'Test address', 'ACTIVE'),
+                    ('City QA Private', 'City QA Hidden', 'East', 'Test address', 'PENDING_VERIFICATION')
+                """);
+        String url = "/api/v1/hotels/destinations";
+        mvc.perform(get(url).param("prefix", "  CITY QA  ")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0]", equalToIgnoringCase("City QA")));
+        mvc.perform(get(url).param("prefix", "City%")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get(url).param("prefix", "City QA").param("hourly", "true")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
     void hourlyAndOvernightCheckoutsCompeteForSameCapacity() throws Exception {
         Long hotelId = jdbc.queryForObject("""
                 insert into hotels (name, city, area, address, status)
@@ -459,6 +478,9 @@ class BidFlowIT {
                 .andExpect(status().isForbidden());
         mvc.perform(put(hourlyUrl).header("X-User-Id", 4).contentType(MediaType.APPLICATION_JSON).content(config))
                 .andExpect(status().isNoContent());
+        String destinationsUrl = "/api/v1/hotels/destinations";
+        mvc.perform(get(destinationsUrl).param("prefix", "hour").param("hourly", "true"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0]").value("Hourly QA"));
         String detailsUrl = "/api/v1/hotels/" + hotelId;
         mvc.perform(get(detailsUrl)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.rooms[0].hourlyRates.threeHours").value(700))
@@ -493,6 +515,8 @@ class BidFlowIT {
                 .andExpect(status().isNoContent());
         mvc.perform(get(detailsUrl)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.rooms[0].hourlyRates").doesNotExist());
+        mvc.perform(get(destinationsUrl).param("prefix", "hour").param("hourly", "true"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test

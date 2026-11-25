@@ -7,6 +7,7 @@ import { useApi } from '../../lib/api';
 import { todayISO } from '../../lib/format';
 import { deviceRequest } from '../../lib/portal-device';
 import { useSession } from '../../lib/session';
+import DestinationField from './DestinationField';
 import HotelDetails from './HotelDetails';
 import StayTypeNav from './StayTypeNav';
 import { useGuest } from './GuestShell';
@@ -31,7 +32,7 @@ function initialSearch(params: URLSearchParams): SearchFields {
     const value = Number(params.get(key));
     return Number.isInteger(value) && value >= 1 && value <= max ? value : fallback;
   };
-  return { city: params.get('city')?.trim().slice(0, 80) || 'Delhi', checkIn, checkOut,
+  return { city: params.get('city')?.trim().slice(0, 80) ?? '', checkIn, checkOut,
     rooms: integer('rooms', 10, 1), guests: integer('guests', 40, 2), category };
 }
 
@@ -61,6 +62,7 @@ export default function Search() {
 
   const hotelQuery = useInfiniteQuery({
     queryKey: ['hotel-search', baseUrl, criteria, area, minimumStars, maximumRate, nearby],
+    enabled: !!criteria.city,
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({
@@ -75,6 +77,8 @@ export default function Search() {
   const hotels = useMemo(() => hotelQuery.data?.pages.flatMap((page) => page.hotels) ?? [], [hotelQuery.data]);
   const areas = hotelQuery.data?.pages[0]?.areas ?? [];
   const visible = hotels;
+  const hasMapLocations = visible.some((hotel) => hotel.latitude != null && hotel.longitude != null);
+  const showMap = panel === 'map' && hasMapLocations;
   const selectableHotels = visible.slice(0, MAX_SELECTED);
   const allSelected = selectableHotels.length > 0 && selectableHotels.every((hotel) => selected.has(hotel.id));
   const targets = hotels.filter((hotel) => selected.has(hotel.id));
@@ -109,9 +113,14 @@ export default function Search() {
 
   function runSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSelected(new Set());
     const next = { ...form, city: form.city.trim() };
-    if (criteria.city !== next.city) setArea('');
+    if (!next.city) return;
+    setSelected(new Set());
+    setForm(next);
+    if (criteria.city.toLowerCase() !== next.city.toLowerCase()) {
+      setArea('');
+      setNearby(undefined);
+    }
     if (JSON.stringify(next) === JSON.stringify(criteria)) void hotelQuery.refetch();
     setCriteria(next);
     send.reset();
@@ -163,7 +172,6 @@ export default function Search() {
     <main className="guest-container guest-search">
       <section className="guest-hero" aria-labelledby="search-title">
         <div className="guest-hero-content">
-          <span className="guest-location"><MapPin size={15} /> Delhi NCR</span>
           <h1 id="search-title">Your stay.<br /><em>Your price.</em></h1>
           <p>Send one bid to the hotels you choose. Compare replies and book the stay that works for you.</p>
           <div className="guest-stay-links">
@@ -174,7 +182,7 @@ export default function Search() {
       </section>
       <form onSubmit={runSearch} className="guest-search-form" id="find-hotels">
         <StayTypeNav hourlyUrl={hourlyUrl} />
-        <label><span><MapPin size={16} /> Destination</span><input required maxLength={80} value={form.city} onChange={(event) => change('city', event.target.value)} /></label>
+        <DestinationField city={form.city} onChange={(city) => change('city', city)} />
         <label><span><CalendarDays size={16} /> Check-in</span><input type="date" required min={todayISO()} value={form.checkIn} onChange={(event) => {
           const checkIn = event.target.value;
           if (!checkIn) return;
@@ -185,7 +193,7 @@ export default function Search() {
         <label><span><BedDouble size={16} /> Rooms</span><input type="number" required min={1} max={10} value={form.rooms || ''} onChange={(event) => change('rooms', Number(event.target.value))} /></label>
         <button className="guest-cta" type="submit"><SearchIcon size={18} /> Find hotels</button>
       </form>
-      <section className="guest-results" aria-labelledby="results-title">
+      {criteria.city && <section className="guest-results" aria-labelledby="results-title">
         <div className="guest-results-main">
           <div className="guest-section-head">
             <div><h2 id="results-title">Choose your hotels</h2><p>{hotelQuery.isPending ? 'Checking room availability…' : `${visible.length}${hotelQuery.hasNextPage ? '+' : ''} available in ${criteria.city}`}</p></div>
@@ -194,10 +202,10 @@ export default function Search() {
                 setSelected(allSelected ? new Set() : new Set(selectableHotels.map((hotel) => hotel.id)))}>
                 {allSelected ? 'Clear selection' : visible.length > MAX_SELECTED ? `Select first ${MAX_SELECTED}` : 'Select all'}
               </button>}
-              <div className="guest-switch" aria-label="Hotel view">
+              {hasMapLocations && <div className="guest-switch" aria-label="Hotel view">
                 <button aria-pressed={panel === 'map'} onClick={() => setPanel('map')}><Map size={16} /> Map</button>
                 <button aria-pressed={panel === 'list'} onClick={() => setPanel('list')}><List size={16} /> List</button>
-              </div>
+              </div>}
             </div>
           </div>
           <div className="guest-filters">
@@ -223,8 +231,8 @@ export default function Search() {
           </div>
           {locationError && <p role="status" className="guest-price-hint">{locationError}</p>}
           <ErrorBox error={hotelQuery.error} />
-          {panel === 'map' && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}><HotelMap hotels={visible} selected={selected} toggle={toggle} /></Suspense>}
-          <div className={panel === 'map' ? 'guest-hotels beneath-map' : 'guest-hotels'}>
+          {showMap && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}><HotelMap hotels={visible} selected={selected} toggle={toggle} /></Suspense>}
+          <div className={showMap ? 'guest-hotels beneath-map' : 'guest-hotels'}>
             {!hotelQuery.isPending && !hotelQuery.error && !visible.length && <div className="guest-empty"><BedDouble size={25} /><h3>No available hotels</h3><p>Try changing your dates, room type or guest count.</p></div>}
             {visible.map((hotel) => <HotelRow key={hotel.id} hotel={hotel} selected={selected.has(hotel.id)} toggle={() => toggle(hotel.id)} openDetails={() => setDetails(hotel)} baseUrl={baseUrl} />)}
           </div>
@@ -256,7 +264,7 @@ export default function Search() {
           {save.isSuccess && <p className="guest-save-success" role="status">Search saved. <Link to="/alerts">View alerts</Link></p>}
           <p className="guest-price-note"><ShieldCheck size={17} /> You pay only if you choose an offer and complete checkout.</p>
         </aside>
-      </section>
+      </section>}
       {details && <HotelDetails id={details.id} name={details.name}
         selection={{ selected: selected.has(details.id), toggle: () => toggle(details.id) }}
         bookingAction={details.roomTypeId && <div>

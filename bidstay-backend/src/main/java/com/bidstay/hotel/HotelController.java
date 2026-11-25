@@ -23,6 +23,11 @@ public class HotelController {
     private final HourlyStays hourly;
     private final BookingReviews reviews;
 
+    @GetMapping("/destinations")
+    public List<String> destinations(@RequestParam String prefix, @RequestParam(defaultValue = "false") boolean hourly) {
+        return search.destinations(prefix, hourly);
+    }
+
     @GetMapping("/{hotelId}/reviews")
     public List<BookingReviews.PublicReview> reviews(@PathVariable long hotelId) {
         return reviews.published(hotelId);

@@ -3,8 +3,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { rupees, type HotelResult } from './models';
 
-const DELHI: L.LatLngTuple = [28.62, 77.20];
-
 export default function HotelMap({ hotels, selected, toggle }: {
   hotels: HotelResult[];
   selected: ReadonlySet<number>;
@@ -21,7 +19,7 @@ export default function HotelMap({ hotels, selected, toggle }: {
 
   useEffect(() => {
     if (!root.current) return;
-    const instance = L.map(root.current, { scrollWheelZoom: false, zoomControl: false }).setView(DELHI, 11);
+    const instance = L.map(root.current, { scrollWheelZoom: false, zoomControl: false });
     L.control.zoom({ position: 'bottomright' }).addTo(instance);
     L.tileLayer(import.meta.env.VITE_MAP_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: import.meta.env.VITE_MAP_ATTRIBUTION ?? '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',

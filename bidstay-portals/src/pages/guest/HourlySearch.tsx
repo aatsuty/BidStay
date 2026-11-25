@@ -6,6 +6,7 @@ import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { fmtDate, todayISO } from '../../lib/format';
 import { useSession } from '../../lib/session';
+import DestinationField from './DestinationField';
 import { useGuest } from './GuestShell';
 import HotelDetails from './HotelDetails';
 import StayTypeNav from './StayTypeNav';
@@ -22,6 +23,7 @@ function initialCount(value: string | null, max: number, fallback: number) {
 
 export default function HourlySearch() {
   const [params] = useSearchParams();
+  const [city, setCity] = useState(() => params.get('city')?.trim().slice(0, 80) ?? '');
   const [criteria, setCriteria] = useState<Criteria>();
   const [hours, setHours] = useState(() => params.get('hours') === '6' ? 6 : 3);
   const [details, setDetails] = useState<Listing>();
@@ -60,6 +62,8 @@ export default function HourlySearch() {
     const next = { city: String(values.get('city')).trim(), date: String(values.get('date')),
       arrival: String(values.get('arrival')), hours, category: String(values.get('category')),
       rooms: Number(values.get('rooms')), guests: Number(values.get('guests')) };
+    if (!next.city) return;
+    setCity(next.city);
     checkout.reset();
     if (JSON.stringify(next) === JSON.stringify(criteria)) void results.refetch();
     setCriteria(next);
@@ -71,17 +75,16 @@ export default function HourlySearch() {
   const date = params.get('date') ?? '';
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today && date <= latest
     && Number.isFinite(Date.parse(date)) && addDays(date, 0) === date;
-  const city = params.get('city')?.trim().slice(0, 80) || 'Delhi';
   const category = ['STANDARD', 'DELUXE', 'SUITE'].find((value) => value === params.get('category')) ?? 'STANDARD';
   const overnight = criteria
-    ? { city: criteria.city, checkIn: criteria.date, category: criteria.category, rooms: String(criteria.rooms), guests: String(criteria.guests) }
+    ? { city, checkIn: criteria.date, category: criteria.category, rooms: String(criteria.rooms), guests: String(criteria.guests) }
     : { city, checkIn: date, category, rooms: params.get('rooms') ?? '', guests: params.get('guests') ?? '' };
   return <main className="guest-container guest-trip">
     <StayTypeNav overnightUrl={'/?' + new URLSearchParams(overnight)} />
     <h1>Hourly stays</h1>
     <p className="guest-trip-description">Book a room for 3 or 6 hours at participating hotels.</p>
     <form className="guest-checkout guest-hourly-search" onSubmit={search}>
-      <label className="field">Destination<input className="input" name="city" defaultValue={city} required maxLength={80} /></label>
+      <DestinationField city={city} onChange={setCity} hourly />
       <label className="field">Date<input className="input" name="date" type="date"
         defaultValue={validDate ? date : addDays(today, 1)}
         min={today} max={latest} required /></label>
@@ -98,8 +101,8 @@ export default function HourlySearch() {
       <button className="guest-cta" disabled={checkout.isPending}>Find hourly stays <ArrowRight size={16} /></button>
     </form>
     <ErrorBox error={results.error ?? checkout.error} />
-    {criteria && <>
-      <p className="guest-trip-description guest-withdraw"><Clock3 size={14} /> {fmtDate(criteria.date)} · {criteria.arrival} IST · {criteria.hours} hours</p>
+    {criteria && criteria.city === city.trim() && <>
+      <p className="guest-trip-description guest-withdraw"><Clock3 size={14} /> {criteria.city} · {fmtDate(criteria.date)} · {criteria.arrival} IST · {criteria.hours} hours</p>
       {results.isFetching && !results.data && <p role="status">Checking available rooms…</p>}
       {results.isSuccess && hotels.length === 0 && <div className="guest-empty"><BedDouble size={23} />
         <h3>No hotels available for this slot</h3><p>Try another time, date, or room type.</p></div>}
