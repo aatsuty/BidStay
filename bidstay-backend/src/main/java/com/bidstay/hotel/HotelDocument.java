@@ -17,6 +17,7 @@ public class HotelDocument {
     @Enumerated(EnumType.STRING)
     private DocType docType;
     private String reference;
+    private Long versionId;
     private Instant submittedAt;
     private boolean verified;
     private Instant verifiedAt;

@@ -1,7 +1,9 @@
 package com.bidstay.partner;
 
+import com.bidstay.audit.AuditTrail;
 import com.bidstay.bidding.BidDtos.HotelOfferView;
 import com.bidstay.bidding.BidDtos.HotelRespond;
+import com.bidstay.whatsapp.WhatsAppNotifications;
 import com.bidstay.bidding.BidService;
 import com.bidstay.bidding.HotelAction;
 import com.bidstay.common.ApiException;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,7 +28,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class PartnerService {
 
-    private static final Pattern COUNTER = Pattern.compile("^(COUNTER|C)\\s*₹?\\s*(\\d{3,6})\\b");
+    private static final Pattern CHAT_REPLY = Pattern.compile(
+            "^(?:(YES|NO)|COUNTER\\s+₹?\\s*(\\d{1,9}(?:\\.\\d{1,2})?))\\s+(\\d{1,18})/(\\d{1,9})$");
 
     private final HotelRepository hotels;
     private final RoomTypeRepository roomTypes;
@@ -35,6 +39,8 @@ public class PartnerService {
     private final PartnerChatService chat;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final WhatsAppNotifications whatsapp;
+    private final AuditTrail audit;
 
     // ------------------------------------------------------------------ registration & documents
 
@@ -71,7 +77,7 @@ public class PartnerService {
             roomTypes.save(rt);
             inventory.ensureRange(rt.getId(), today, today.plusDays(InventoryJobs.HORIZON_DAYS), r.totalRooms());
         }
-        jdbc.update("insert into hotel_staff (user_id, hotel_id) values (?, ?)", userId, h.getId());
+        jdbc.update("insert into hotel_staff (user_id, hotel_id, can_manage_staff) values (?, ?, true)", userId, h.getId());
         chat.bot(h.getId(), PartnerMessage.Kind.SYSTEM,
                 "*Welcome to BidStay.* Add your four documents (GST, licence, owner ID, photos) so our team can verify "
                         + h.getName() + ". Bid requests will appear in this chat once you are live.", null);
@@ -84,7 +90,7 @@ public class PartnerService {
         docs.findByHotelId(hotelId).forEach(d -> have.put(d.getDocType(), d));
         return Arrays.stream(DocType.values()).map(t -> {
             HotelDocument d = have.get(t);
-            return new DocumentView(t, d != null, d != null && d.isVerified(), d == null ? null : d.getReference());
+            return new DocumentView(t, d != null, d != null && d.isVerified(), d == null ? null : d.getReference(), d == null ? null : d.getVersionId());
         }).toList();
     }
 
@@ -93,6 +99,7 @@ public class PartnerService {
         HotelDocument d = docs.findByHotelIdAndDocType(hotelId, type).orElseGet(HotelDocument::new);
         d.setHotelId(hotelId);
         d.setDocType(type);
+        if (d.getVersionId() != null) throw ApiException.conflict("Upload a replacement file for this document");
         d.setReference(reference.trim());
         d.setSubmittedAt(clock.instant());
         d.setVerified(false);          // a changed document must be checked again
@@ -106,6 +113,35 @@ public class PartnerService {
         }
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "We received your " + type.name().replace('_', ' ').toLowerCase() + ". Our team will verify it shortly.", null);
         return documents(hotelId);
+    }
+
+    @Transactional(readOnly = true)
+    public StayPolicy stayPolicy(Long hotelId) {
+        return jdbc.query("""
+                select p.check_in_from, p.check_out_by, p.guest_instructions
+                from hotels h left join hotel_stay_policies p on p.hotel_id = h.id
+                where h.id = ?
+                """, (rs, row) -> new StayPolicy(rs.getObject(1, LocalTime.class),
+                rs.getObject(2, LocalTime.class), rs.getString(3)), hotelId)
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("Hotel"));
+    }
+
+    @Transactional
+    public StayPolicy updateStayPolicy(Long actorId, Long hotelId, StayPolicy policy) {
+        if (!hotels.existsById(hotelId)) throw ApiException.notFound("Hotel");
+        String instructions = policy.guestInstructions() == null ? null : policy.guestInstructions().strip();
+        StayPolicy updated = new StayPolicy(policy.checkInFrom(), policy.checkOutBy(),
+                instructions == null || instructions.isEmpty() ? null : instructions);
+        int changed = jdbc.update("""
+                insert into hotel_stay_policies (hotel_id, check_in_from, check_out_by, guest_instructions)
+                values (?, ?, ?, ?)
+                on conflict (hotel_id) do update set check_in_from = excluded.check_in_from,
+                    check_out_by = excluded.check_out_by, guest_instructions = excluded.guest_instructions
+                where (hotel_stay_policies.check_in_from, hotel_stay_policies.check_out_by, hotel_stay_policies.guest_instructions)
+                    is distinct from (excluded.check_in_from, excluded.check_out_by, excluded.guest_instructions)
+                """, hotelId, updated.checkInFrom(), updated.checkOutBy(), updated.guestInstructions());
+        if (changed != 0) audit.record(actorId, AuditTrail.Action.HOTEL_STAY_POLICY_UPDATED, hotelId, hotelId);
+        return updated;
     }
 
     // ------------------------------------------------------------------ rates & rules
@@ -167,45 +203,33 @@ public class PartnerService {
     // ------------------------------------------------------------------ WhatsApp-style chat
 
     public List<ChatMessageView> chatHistory(Long hotelId, long afterId) {
-        return chat.history(hotelId, afterId).stream().map(PartnerService::view).toList();
+        var messages = chat.history(hotelId, afterId);
+        var statuses = whatsapp.deliveryStatus(messages.stream().map(PartnerMessage::getId).toList());
+        return messages.stream().map(m -> new ChatMessageView(m.getId(), m.getSender().name(), m.getKind().name(),
+                m.getBody(), m.getBidOfferId(), m.getCreatedAt(), m.getChannel(), statuses.get(m.getId()))).toList();
     }
 
     /**
-     * Understands the same replies as the demo: YES, NO, COUNTER 1500.
-     * Deliberately NOT @Transactional: a rejected reply (for example an expired request) must not roll
-     * back the chat messages that explain why.
+     * Records the message even if its referenced bid can no longer be answered.
      */
     public List<ChatMessageView> handleChatText(Long hotelId, String raw) {
         String text = raw.trim();
         PartnerMessage sent = chat.hotelSays(hotelId, text);
-        String u = text.toUpperCase(Locale.ROOT);
+        Matcher reply = CHAT_REPLY.matcher(text.toUpperCase(Locale.ROOT));
 
-        List<HotelOfferView> pending = bids.pendingForHotel(hotelId);
-        Matcher counter = COUNTER.matcher(u);
-        HotelAction action = null;
-        BigDecimal counterPrice = null;
-        if (u.matches("^(YES|Y|ACCEPT)\\b.*")) action = HotelAction.ACCEPT;
-        else if (u.matches("^(NO|N|DECLINE)\\b.*")) action = HotelAction.DECLINE;
-        else if (counter.find()) {
-            action = HotelAction.COUNTER;
-            counterPrice = new BigDecimal(counter.group(2));
-        }
-
-        if (action == null) {
+        if (!reply.matches()) {
             chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
-                    "Sorry, I did not understand that. Reply *YES* to accept, *NO* to decline, or *COUNTER 1500* with your price.", null);
-        } else if (pending.isEmpty()) {
-            chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "There is no bid waiting for your reply right now.", null);
+                    "Use the reply buttons or include the request and round shown in the message, for example *YES 42/1* or *COUNTER 1500 42/1*.", null);
         } else {
-            HotelOfferView target = pending.get(0);        // newest request first
+            Long offerId = Long.valueOf(reply.group(3));
+            int round = Integer.parseInt(reply.group(4));
+            HotelAction action = reply.group(1) == null ? HotelAction.COUNTER
+                    : "YES".equals(reply.group(1)) ? HotelAction.ACCEPT : HotelAction.DECLINE;
+            BigDecimal price = reply.group(2) == null ? null : new BigDecimal(reply.group(2));
             try {
-                bids.respond(hotelId, target.offerId(), new HotelRespond(action, counterPrice));
-                if (pending.size() > 1) {
-                    chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
-                            "You have " + (pending.size() - 1) + " more request(s) waiting. Open the Requests page to reply to a specific one.", null);
-                }
+                bids.respond(hotelId, offerId, new HotelRespond(action, price, round));
             } catch (ApiException e) {
-                chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "Could not record that: " + e.getMessage(), target.offerId());
+                chat.bot(hotelId, PartnerMessage.Kind.SYSTEM, "Could not record that: " + e.getMessage(), null);
             }
         }
         return chatHistory(hotelId, sent.getId() - 1);
@@ -217,7 +241,9 @@ public class PartnerService {
     public List<BookingRow> bookings(Long hotelId) {
         return jdbc.query("""
                 select b.id, b.status, rt.name, b.check_in, b.check_out, b.rooms, b.price_per_night,
-                       b.total_amount, b.commission_amount, u.name, u.phone
+                       b.total_amount, b.commission_amount, u.name, u.phone,
+                       case when b.hourly_rate is not null then b.arrival_at end,
+                       case when b.hourly_rate is not null then b.departure_at end, b.hourly_rate
                 from bookings b
                 join room_types rt on rt.id = b.room_type_id
                 join users u on u.id = b.guest_id
@@ -226,7 +252,10 @@ public class PartnerService {
                 """, (rs, i) -> new BookingRow(rs.getLong(1), rs.getString(2), rs.getString(3),
                 rs.getDate(4).toLocalDate(), rs.getDate(5).toLocalDate(), rs.getInt(6), rs.getBigDecimal(7),
                 rs.getBigDecimal(8), rs.getBigDecimal(9), rs.getBigDecimal(8).subtract(rs.getBigDecimal(9)),
-                rs.getString(10), rs.getString(11)), hotelId);
+                rs.getString(10), rs.getString(11),
+                rs.getObject(12, java.time.OffsetDateTime.class) == null ? null : rs.getTimestamp(12).toInstant(),
+                rs.getObject(13, java.time.OffsetDateTime.class) == null ? null : rs.getTimestamp(13).toInstant(),
+                rs.getBigDecimal(14)), hotelId);
     }
 
     @Transactional(readOnly = true)
@@ -259,7 +288,5 @@ public class PartnerService {
                 .orElseThrow(() -> ApiException.notFound("Room type"));
     }
 
-    private static ChatMessageView view(PartnerMessage m) {
-        return new ChatMessageView(m.getId(), m.getSender().name(), m.getKind().name(), m.getBody(), m.getBidOfferId(), m.getCreatedAt());
-    }
+
 }

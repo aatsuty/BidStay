@@ -1,5 +1,7 @@
 package com.bidstay.admin;
 
+import com.bidstay.audit.AuditTrail;
+import com.bidstay.audit.AuditTrail.Action;
 import com.bidstay.admin.AdminDtos.*;
 import com.bidstay.common.ApiException;
 import com.bidstay.hotel.*;
@@ -7,6 +9,7 @@ import com.bidstay.partner.PartnerChatService;
 import com.bidstay.partner.PartnerMessage;
 import com.bidstay.partner.PartnerService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +33,7 @@ public class AdminService {
     private final PartnerChatService chat;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final AuditTrail audit;
 
     // ------------------------------------------------------------------ overview
 
@@ -70,57 +75,126 @@ public class AdminService {
                 .map(this::row).toList();
     }
 
+    @Transactional(readOnly = true)
+    public HotelPage hotelsPage(HotelStatus status, long before) {
+        int size = 24;
+        var page = hotels.adminPage(status, before, PageRequest.of(0, size + 1));
+        var rows = page.stream().limit(size).map(this::row).toList();
+        return new HotelPage(rows, page.size() > size ? page.get(size - 1).getId() : null);
+    }
+
+    public record HotelPage(List<HotelRow> hotels, Long nextCursor) {}
+
     @Transactional
-    public HotelRow verifyDocument(Long hotelId, DocType type, boolean verified) {
+    public HotelRow verifyDocument(Long hotelId, DocType type, boolean verified, Long versionId, Long reviewerId) {
+        Hotel hotel = lockedHotel(hotelId);
         HotelDocument d = docs.findByHotelIdAndDocType(hotelId, type)
                 .orElseThrow(() -> ApiException.invalid("The hotel has not submitted this document yet"));
+        if (!Objects.equals(d.getVersionId(), versionId)) {
+            throw ApiException.conflict("The document was replaced. Review the latest file.");
+        }
+        if (versionId != null) {
+            jdbc.update("insert into hotel_document_reviews (version_id, reviewed_by, verified) values (?, ?, ?)",
+                    versionId, reviewerId, verified);
+        }
+        if (!verified && hotel.getStatus() == HotelStatus.ACTIVE) hotel.setStatus(HotelStatus.PENDING_VERIFICATION);
         d.setVerified(verified);
         d.setVerifiedAt(verified ? clock.instant() : null);
-        return row(hotel(hotelId));
+        audit.record(reviewerId, verified ? Action.DOCUMENT_VERIFIED : Action.DOCUMENT_UNVERIFIED, d.getId(), hotelId);
+        return row(hotel);
     }
 
     @Transactional
-    public HotelRow approve(Long hotelId) {
-        Hotel h = hotel(hotelId);
+    public HotelRow approve(Long actorId, Long hotelId) {
+        Hotel h = lockedHotel(hotelId);
         long verified = docs.findByHotelId(hotelId).stream().filter(HotelDocument::isVerified).count();
         if (verified < DocType.values().length) throw ApiException.invalid("Verify all four documents before approving");
         h.setStatus(HotelStatus.ACTIVE);
         h.setRejectionReason(null);
+        audit.record(actorId, Action.HOTEL_APPROVED, hotelId, hotelId);
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
                 "*Congratulations.* " + h.getName() + " is verified and now live on BidStay. You will receive bid requests here.", null);
         return row(h);
     }
 
     @Transactional
-    public HotelRow reject(Long hotelId, String reason) {
-        Hotel h = hotel(hotelId);
+    public HotelRow reject(Long actorId, Long hotelId, String reason) {
+        Hotel h = lockedHotel(hotelId);
         h.setStatus(HotelStatus.REJECTED);
         h.setRejectionReason(reason.trim());
+        audit.record(actorId, Action.HOTEL_REJECTED, hotelId, hotelId);
         chat.bot(hotelId, PartnerMessage.Kind.SYSTEM,
                 "Your registration for " + h.getName() + " was not approved: " + reason.trim() + ". Please fix it and resubmit the document.", null);
         return row(h);
     }
 
     @Transactional
-    public HotelRow setSuspended(Long hotelId, boolean suspended) {
-        Hotel h = hotel(hotelId);
+    public HotelRow setSuspended(Long actorId, Long hotelId, boolean suspended) {
+        Hotel h = lockedHotel(hotelId);
         if (suspended && h.getStatus() != HotelStatus.ACTIVE) throw ApiException.invalid("Only live hotels can be suspended");
         if (!suspended && h.getStatus() != HotelStatus.SUSPENDED) throw ApiException.invalid("This hotel is not suspended");
         h.setStatus(suspended ? HotelStatus.SUSPENDED : HotelStatus.ACTIVE);
+        audit.record(actorId, suspended ? Action.HOTEL_SUSPENDED : Action.HOTEL_REINSTATED, hotelId, hotelId);
         return row(h);
     }
 
     // ------------------------------------------------------------------ monitoring
 
     @Transactional(readOnly = true)
+    public MarketStats market(String city, String area) {
+        if (city.isBlank() || area.isBlank() || city.length() > 80 || area.length() > 100) {
+            throw ApiException.invalid("Choose a city and neighbourhood");
+        }
+        return jdbc.queryForObject("""
+                with cohort as materialized (
+                    select id, status from hotels where lower(city) = lower(?) and lower(area) = lower(?)
+                ), reached as materialized (
+                    select o.id as offer_id, o.hotel_id, b.id as bid_id, b.created_at
+                    from bid_requests b join bid_offers o on o.bid_request_id = b.id join cohort h on h.id = o.hotel_id
+                    where b.created_at >= now() - interval '30 days' and o.status <> 'UNAVAILABLE'
+                ), ready as materialized (
+                    select r.bid_id, r.hotel_id, min(extract(epoch from a.created_at - r.created_at)) as seconds
+                    from reached r join guest_alerts a on a.bid_id = r.bid_id and a.kind = 'OFFER'
+                        and a.event_key like ('offer-' || r.offer_id || '-%')
+                    group by r.bid_id, r.hotel_id
+                ), first_offers as (
+                    select bid_id, min(seconds) as seconds from ready group by bid_id
+                ), paid as materialized (
+                    select b.bid_request_id, b.status, b.rooms, b.arrival_at, b.departure_at
+                    from bookings b join cohort h on h.id = b.hotel_id
+                    where b.created_at >= now() - interval '30 days' and b.payment_ref is not null
+                )
+                select (select count(*) from cohort where status = 'ACTIVE'),
+                    (select count(distinct bid_id) from reached),
+                    (select count(*) from ready),
+                    (select percentile_cont(0.5) within group (order by seconds) from first_offers),
+                    (select count(distinct bid_request_id) from paid
+                     where bid_request_id in (select bid_id from reached)),
+                    (select coalesce(sum(rooms * extract(epoch from departure_at - arrival_at) / 3600), 0)
+                     from paid where status = 'CONFIRMED'),
+                    (select count(*) from paid where status = 'CONFIRMED' and arrival_at is null)
+                """, (rs, row) -> new MarketStats(rs.getLong(1), rs.getLong(2), rs.getLong(3),
+                rs.getObject(4, Double.class), rs.getLong(5), rs.getBigDecimal(6), rs.getLong(7)),
+                city.strip(), area.strip());
+    }
+
+    public record MarketStats(long liveHotels, long bidsReached, long usefulOffers,
+                              Double medianFirstOfferSeconds, long paidBids,
+                              BigDecimal bookedRoomHours, long bookingsWithoutTimes) {}
+
+    @Transactional(readOnly = true)
     public List<BookingRow> bookings() {
         return jdbc.query("""
-                select b.id, h.name, u.name, b.status, b.check_in, b.check_out, b.rooms, b.total_amount, b.commission_amount, b.created_at
+                select b.id, h.name, u.name, b.status, b.check_in, b.check_out, b.rooms, b.total_amount, b.commission_amount, b.created_at,
+                       case when b.hourly_rate is not null then b.arrival_at end,
+                       case when b.hourly_rate is not null then b.departure_at end
                 from bookings b join hotels h on h.id = b.hotel_id join users u on u.id = b.guest_id
                 order by b.id desc limit 100
                 """, (rs, i) -> new BookingRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4),
                 rs.getDate(5).toLocalDate(), rs.getDate(6).toLocalDate(), rs.getInt(7), rs.getBigDecimal(8), rs.getBigDecimal(9),
-                rs.getTimestamp(10).toInstant()));
+                rs.getTimestamp(10).toInstant(),
+                rs.getTimestamp(11) == null ? null : rs.getTimestamp(11).toInstant(),
+                rs.getTimestamp(12) == null ? null : rs.getTimestamp(12).toInstant()));
     }
 
     @Transactional(readOnly = true)
@@ -139,8 +213,8 @@ public class AdminService {
 
     // ------------------------------------------------------------------ helpers
 
-    private Hotel hotel(Long id) {
-        return hotels.findById(id).orElseThrow(() -> ApiException.notFound("Hotel"));
+    private Hotel lockedHotel(Long id) {
+        return hotels.lockById(id).orElseThrow(() -> ApiException.notFound("Hotel"));
     }
 
     private HotelRow row(Hotel h) {

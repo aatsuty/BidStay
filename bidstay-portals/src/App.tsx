@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from './lib/api';
 import { useSession } from './lib/session';
@@ -14,40 +15,54 @@ import Profile from './pages/hotel/Profile';
 import Register from './pages/hotel/Register';
 import AdminShell from './pages/admin/AdminShell';
 import Overview from './pages/admin/Overview';
+import AuditLog from './pages/admin/AuditLog';
 import AdminHotels from './pages/admin/AdminHotels';
 import AdminBookings from './pages/admin/AdminBookings';
 import AdminBids from './pages/admin/AdminBids';
 import { Loading } from './components/ui';
+import ListingPhotos from './pages/hotel/ListingPhotos';
+import ListingMediaReview from './pages/admin/ListingMediaReview';
+import GuestShell from './pages/guest/GuestShell';
+import Search from './pages/guest/Search';
+import Alerts from './pages/guest/Alerts';
+import HourlySearch from './pages/guest/HourlySearch';
+import Reviews from './pages/admin/Reviews';
+import Market from './pages/admin/Market';
+import { Checkout, Offers, Trips } from './pages/guest/TripFlow';
 
 export function useMe() {
   const api = useApi();
-  const { userId } = useSession();
-  return useQuery({ queryKey: ['me', userId], queryFn: () => api.get<Me>('/api/v1/me'), enabled: userId != null, retry: false });
+  const { userId, cacheKey } = useSession();
+  return useQuery({ queryKey: ['me', cacheKey], queryFn: () => api.get<Me>('/api/v1/me'), enabled: userId != null, retry: false });
 }
 
-const home = (role: Role) => (role === 'ADMIN' ? '/admin' : role === 'HOTEL_STAFF' ? '/hotel' : '/login');
+const home = (role: Role) => (role === 'ADMIN' ? '/admin' : role === 'HOTEL_STAFF' ? '/hotel' : '/');
 
 function Guard({ role, children }: { role: Role; children: React.ReactNode }) {
-  const { userId, signOut } = useSession();
+  const { userId } = useSession();
   const me = useMe();
   if (userId == null) return <Navigate to="/login" replace />;
   if (me.isLoading) return <div className="main"><Loading /></div>;
-  if (me.error || !me.data) { signOut(); return <Navigate to="/login" replace />; }
+  if (me.error || !me.data) return <Navigate to="/login" replace />;
   if (me.data.role !== role) return <Navigate to={home(me.data.role)} replace />;
   return <>{children}</>;
 }
 
-function Landing() {
-  const { userId } = useSession();
-  const me = useMe();
-  if (userId == null) return <Navigate to="/login" replace />;
-  if (!me.data) return <div className="main"><Loading /></div>;
-  return <Navigate to={home(me.data.role)} replace />;
-}
-
 export default function App() {
+  const location = useLocation();
+  useEffect(() => {
+    window.ReactNativeWebView?.postMessage(JSON.stringify({ action: 'history', canGoBack: window.history.state?.idx > 0 }));
+  }, [location]);
   return (
     <Routes>
+      <Route element={<GuestShell />}>
+        <Route index element={<Search />} />
+        <Route path="/hourly" element={<HourlySearch />} />
+        <Route path="/offers/:bidId" element={<Offers />} />
+        <Route path="/checkout/:bookingId" element={<Checkout />} />
+        <Route path="/trips" element={<Trips />} />
+        <Route path="/alerts" element={<Alerts />} />
+      </Route>
       <Route path="/login" element={<Login />} />
       <Route path="/hotel" element={<Guard role="HOTEL_STAFF"><HotelShell /></Guard>}>
         <Route index element={<Navigate to="requests" replace />} />
@@ -57,15 +72,20 @@ export default function App() {
         <Route path="bookings" element={<Bookings />} />
         <Route path="insights" element={<Insights />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="photos" element={<ListingPhotos />} />
         <Route path="register" element={<Register />} />
       </Route>
       <Route path="/admin" element={<Guard role="ADMIN"><AdminShell /></Guard>}>
         <Route index element={<Overview />} />
         <Route path="hotels" element={<AdminHotels />} />
+        <Route path="audit" element={<AuditLog />} />
+        <Route path="photos" element={<ListingMediaReview />} />
         <Route path="bookings" element={<AdminBookings />} />
         <Route path="bids" element={<AdminBids />} />
+        <Route path="reviews" element={<Reviews />} />
+        <Route path="market" element={<Market />} />
       </Route>
-      <Route path="*" element={<Landing />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

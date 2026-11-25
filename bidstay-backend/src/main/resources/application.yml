@@ -1,4 +1,12 @@
 spring:
+  task:
+    scheduling:
+      pool:
+        size: 5
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   application:
     name: bidstay-backend
   datasource:
@@ -17,6 +25,43 @@ spring:
     default-property-inclusion: non_null
 
 bidstay:
+  rate-limit:
+    otp-send: ${BIDSTAY_OTP_SEND_LIMIT:20}
+    otp-verify: ${BIDSTAY_OTP_VERIFY_LIMIT:60}
+    admin-sign-in: ${BIDSTAY_ADMIN_SIGN_IN_LIMIT:20}
+  documents:
+    bucket: ${BIDSTAY_DOCUMENT_BUCKET:}
+    region: ${AWS_REGION:ap-south-1}
+    local-path: ${BIDSTAY_DOCUMENT_LOCAL_PATH:.bidstay-documents}
+  booking:
+    free-cancellation: ${BIDSTAY_FREE_CANCELLATION:false}
+  media:
+    edge-ttl-seconds: ${BIDSTAY_MEDIA_EDGE_TTL_SECONDS:0}
+  whatsapp:
+    token: ${WHATSAPP_TOKEN:}
+    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+    app-secret: ${WHATSAPP_APP_SECRET:}
+    verify-token: ${WHATSAPP_VERIFY_TOKEN:}
+    graph-version: ${WHATSAPP_GRAPH_VERSION:v23.0}
+    language: ${WHATSAPP_TEMPLATE_LANGUAGE:en}
+    hotel-bid-template: ${WHATSAPP_HOTEL_BID_TEMPLATE:}
+    guest-offer-template: ${WHATSAPP_GUEST_OFFER_TEMPLATE:}
+    booking-template: ${WHATSAPP_BOOKING_TEMPLATE:}
+    openai-api-key: ${OPENAI_API_KEY:}
+    openai-model: ${WHATSAPP_AI_MODEL:gpt-4o-mini}
+  admin:
+    phone: ${BIDSTAY_ADMIN_PHONE:}
+    password-hash: ${BIDSTAY_ADMIN_PASSWORD_HASH:}
+    totp-secret: ${BIDSTAY_ADMIN_TOTP_SECRET:}
+  razorpay:
+    key-id: ${RAZORPAY_KEY_ID:}
+    key-secret: ${RAZORPAY_KEY_SECRET:}
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+    reference-prefix: ${RAZORPAY_REFERENCE_PREFIX:bidstay}
+  auth:
+    twilio-account-sid: ${TWILIO_ACCOUNT_SID:}
+    twilio-auth-token: ${TWILIO_AUTH_TOKEN:}
+    twilio-verify-service-sid: ${TWILIO_VERIFY_SERVICE_SID:}
   offer-response-window: 15m      # hotel must reply within this time
   bid-lifetime: 60m               # whole bid request expires after this
   payment-hold: 10m               # inventory is held this long while guest pays
@@ -26,4 +71,5 @@ bidstay:
   commission-pct: 10.0            # PDF: 8-12%
 
 server:
+  forward-headers-strategy: ${BIDSTAY_FORWARD_HEADERS_STRATEGY:none}
   port: 8080

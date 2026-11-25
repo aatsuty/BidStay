@@ -18,15 +18,16 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.bidstay.app",
-      "usesCleartextTraffic": true
+      "package": "com.bidstay.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-status-bar",
+      "expo-sharing",
+      ["expo-location", { "locationWhenInUsePermission": "Use your approximate location to find nearby stays." }]
     ],
     "scheme": "bidstay"
   }

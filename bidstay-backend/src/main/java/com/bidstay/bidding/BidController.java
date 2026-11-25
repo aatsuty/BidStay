@@ -1,5 +1,6 @@
 package com.bidstay.bidding;
 
+import com.bidstay.auth.CallerId;
 import com.bidstay.bidding.BidDtos.*;
 import com.bidstay.booking.BookingView;
 import jakarta.validation.Valid;
@@ -11,8 +12,6 @@ import java.util.List;
 
 /**
  * Guest endpoints.
- * AUTH PLACEHOLDER: X-User-Id header stands in for the logged-in user until JWT/OTP auth is added.
- * Replace @RequestHeader with the authenticated principal before any real deployment.
  */
 @RestController
 @RequestMapping("/api/v1/bids")
@@ -23,27 +22,32 @@ public class BidController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public BidView create(@RequestHeader("X-User-Id") Long userId, @Valid @RequestBody CreateBid body) {
+    public BidView create(@CallerId(guestOnly = true) Long userId, @Valid @RequestBody CreateBid body) {
         return service.create(userId, body);
     }
 
     @GetMapping
-    public List<BidView> mine(@RequestHeader("X-User-Id") Long userId) {
+    public List<BidView> mine(@CallerId(guestOnly = true) Long userId) {
         return service.listForGuest(userId);
     }
 
     @GetMapping("/{bidId}")
-    public BidView get(@RequestHeader("X-User-Id") Long userId, @PathVariable Long bidId) {
+    public BidView get(@CallerId(guestOnly = true) Long userId, @PathVariable Long bidId) {
         return service.get(userId, bidId);
     }
 
     @PostMapping("/{bidId}/raise")
-    public BidView raise(@RequestHeader("X-User-Id") Long userId, @PathVariable Long bidId, @Valid @RequestBody Raise body) {
+    public BidView raise(@CallerId(guestOnly = true) Long userId, @PathVariable Long bidId, @Valid @RequestBody Raise body) {
         return service.raise(userId, bidId, body.pricePerNight());
     }
 
+    @PostMapping("/{bidId}/cancel")
+    public BidView cancel(@CallerId(guestOnly = true) Long userId, @PathVariable Long bidId) {
+        return service.cancel(userId, bidId);
+    }
+
     @PostMapping("/{bidId}/offers/{offerId}/accept")
-    public BookingView accept(@RequestHeader("X-User-Id") Long userId, @PathVariable Long bidId, @PathVariable Long offerId) {
+    public BookingView accept(@CallerId(guestOnly = true) Long userId, @PathVariable Long bidId, @PathVariable Long offerId) {
         return service.acceptOffer(userId, bidId, offerId);
     }
 }

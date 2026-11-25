@@ -1,8 +1,10 @@
 BidStay: Apna Rate, Apna Stay
 
+Pilot branch setup, web routes, provider configuration and scaling notes are in [the BidStay pilot guide](docs/pilot.md).
+
 A hotel booking platform where the guest names the price. One bid goes to many hotels at once. Each hotel can accept, counter or decline, and the booking is confirmed when both sides agree.
 
-Status: working prototype, not deployed. All three apps are built and the main flows work. It runs locally with sample data. Login and payment are in demo mode. See What is not done yet.
+Status: pilot implementation available locally. The React web app serves all three roles. The Expo app opens that same portal on Android and iOS. The dev profile includes demo accounts and payment.
 
 Why BidStay
 Guests today	Hotels today
@@ -18,13 +20,13 @@ Bid: pick hotels and name a price per night. A price guide helps keep bids reali
 Hotels reply within 15 minutes: accept, counter, or decline. Bids above a hotel's private minimum price can be accepted automatically.
 Raise or accept: the guest can raise the bid (up to 3 rounds) or book the best offer.
 Pay and confirm: the rooms are held for 10 minutes while the guest pays. The hotel's address is shown only after payment.
-Three apps, one backend
+Three roles, one backend
 App	For	Tech	Folder
-Guest app	Travellers	React Native (Expo), TypeScript. Android, iOS and web	bidstay-app
+Guest app	Travellers	React portal with an Expo app wrapper	bidstay-portals (/)
 Hotel portal	Hotel owners	React, TypeScript, Vite	bidstay-portals (/hotel)
 Admin portal	BidStay team	Same web project	bidstay-portals (/admin)
 Backend API	All of the above	Java 21, Spring Boot 3, PostgreSQL, Flyway	bidstay-backend
- Guest app (React Native) ──┐
+ Guest portal (React)     ──┐
  Hotel portal (React) ──────┼──►  Spring Boot API  ──►  PostgreSQL
  Admin portal (React) ──────┘      bidding engine       (Flyway migrations)
                                    room inventory + holds
@@ -36,7 +38,7 @@ Live offers with a reply countdown per hotel: accepted, counter offer, waiting, 
 Raise the bid (max 3 rounds), book an offer, 10-minute room hold, payment step
 Hotel name and address revealed only after payment
 Hotel portal
-WhatsApp-style chat: reply YES, NO or COUNTER 1500. Bid cards with Accept, Decline and Counter buttons stay in sync with the chat
+WhatsApp-style chat: reply using the offer and round shown in the message, for example YES 42/1, NO 42/1 or COUNTER 1500 42/1. Bid cards with Accept, Decline and Counter buttons stay in sync with the chat
 Rates and rules: private minimum price per room, automatic acceptance at or above the minimum, auto-counter for bids slightly below it, auto-decline, or manual approval of every bid
 Availability calendar (cannot drop below rooms already booked), paid bookings with payout, 30-day insights
 Registration with four documents: GST, licence, owner ID, photos
@@ -76,25 +78,28 @@ More are in docs/screenshots.
 
 Quick start
 
-Needs Docker, Java 21, Maven and Node 20 or newer. Full guide with troubleshooting: docs/SETUP.md.
+Needs Docker, Java 21, Maven and Node 22.13 or newer. See the [pilot setup](docs/pilot.md) for configuration.
 
-bash
-# 1. Backend (database + API, with demo data)
+```bash
+# Start BidStay from the repository root
 cd bidstay-backend
 docker compose up -d
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
+```
 
-# 2. Hotel and admin portals  ->  http://localhost:5173
-cd bidstay-portals
-npm install && npm run dev
+Open [BidStay](http://localhost:8080/) and choose **Hourly stays** on the homepage. Maven builds the portal and Spring Boot serves it with the API.
 
-# 3. Guest app in the browser (press w)
+```bash
+# Optional second terminal for Android and iOS
 cd bidstay-app
-npm install && npx expo start
+npm ci && npx expo start --go --lan --clear
+```
 
-Demo accounts (the dev profile only): the portals' login page has buttons for the hotel owner (user 3), a new hotel owner with hotels waiting for approval (user 5), and the admin (user 4). The guest app uses user 1.
+[Expo Go and Wi-Fi setup](bidstay-app/README.md)
 
-Try it in 5 minutes: bid ₹1,100 at Hotel Sunrise and Hotel Metro Inn from the guest app. Metro Inn accepts instantly (private minimum ₹1,000). Sunrise (minimum ₹1,200) waits, so open the hotel portal and type COUNTER 1500 in the chat. Back in the guest app, book the counter offer and pay.
+Demo accounts (the dev profile only): the portals' login page has buttons for the hotel owner (user 3), a new hotel owner with hotels waiting for approval (user 5), and the admin (user 4). Choose **Sign in → Continue with demo guest** to use the guest demo account.
+
+Try it in 5 minutes: bid ₹1,100 at Hotel Sunrise and Hotel Metro Inn from the guest app. Metro Inn accepts instantly (private minimum ₹1,000). Sunrise (minimum ₹1,200) waits, so open the hotel portal and use the Counter button or copy the counter command from the chat message. Back in the guest app, book the counter offer and pay.
 
 Project structure
 bidstay/
@@ -109,34 +114,24 @@ bidstay/
       hotel/          hotels, rooms, documents
     src/main/resources/db/migration   database schema (Flyway)
     src/main/resources/db/seed        demo data (dev profile only)
-  bidstay-app/        React Native guest app (Expo Router)
-  bidstay-portals/    React hotel and admin portals (Vite)
+  bidstay-app/        Expo wrapper for the shared portal
+  bidstay-portals/    Shared React portal for all three roles (Vite)
   docs/               setup guide, screenshots, business idea
 Key design decisions
 The hotel's minimum price is private. It never appears in any guest-facing response.
 One place decides how a bid is answered (BidService.evaluate), used both when a bid is created and when it is raised, so the rules cannot drift apart.
 Hotels choose how automatic they are: automatic mode, auto-counter within 5 to 20% below the minimum, auto-decline, or fully manual.
 Flyway owns the database schema. Hibernate only validates it.
-Access control is in one service (AccessService). Only the way the caller's identity is read will change when real login is added.
-What is not done yet
+Access control is in one service (AccessService). Outside development, callers use verified guest, hotel staff, or admin sessions.
+Pilot rollout
 
-Be aware before using this for anything real:
+The build includes phone sign-in, property staff invitations, admin MFA, private document uploads,
+Razorpay checkout and refunds, and WhatsApp messaging with optional AI reply drafts. See the
+[pilot guide](docs/pilot.md) for configuration and local testing.
+Pending pilot work includes provider onboarding, HTTPS deployment, backups, monitoring, and validating
+tax and hotel settlement operations. Start with 20 to 30 independent Delhi NCR hotels. Hourly stays,
+public reviews, cashback and featured placement are outside this overnight pilot.
 
-Login is a placeholder. Callers are identified by an X-User-Id header, so anyone can claim any user, including admin. Roles and hotel-ownership checks are enforced, but real phone + OTP login with tokens is needed first.
-Payment is fake. The Pay button calls a dev-only endpoint. Razorpay is not integrated.
-WhatsApp is simulated inside the hotel portal. Real WhatsApp Business messaging is not connected.
-No hotel payouts, cancellations or refunds yet.
-Not deployed. No hosting, HTTPS or backups.
-Test status: the web apps type-check and were tested in a browser against a stand-in API. The backend has integration tests (Testcontainers) covering the bid engine, hotel rules, chat commands and approval, but a full end-to-end run on the real backend is still in progress.
-Document upload takes a number or link, not a file.
-Roadmap
-Run everything end to end and fix issues
-Phone + OTP login with JWT
-Razorpay payments, then hotel payouts, cancellations and refunds
-WhatsApp Business messaging and push notifications
-Deploy (HTTPS, backups, monitoring)
-Pilot: 20 to 30 independent hotels in one Delhi NCR area (for example Paharganj or Aerocity) for 30 to 45 days, measured against the three targets above
-Later: map search, hotel photos, reviews, hourly stays, hostels and homestays
 Business model
 
 8 to 12% commission on each confirmed booking (10% in the prototype), below the 15 to 25% of big platforms. Featured listings for hotels after the first six months. Full plan: docs/BidStay-Business-Idea.pdf.

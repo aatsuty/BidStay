@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import type { AdminStats } from '../../lib/types';
@@ -8,12 +8,22 @@ import { useMe } from '../../App';
 export default function AdminShell() {
   const api = useApi();
   const nav = useNavigate();
-  const { signOut } = useSession();
+  const { token, signOut } = useSession();
+  const qc = useQueryClient();
+  async function leave() {
+    try { if (token) await api.post('/api/v1/auth/logout'); }
+    finally {
+      qc.clear();
+      signOut();
+      nav('/login');
+    }
+  }
   const me = useMe();
   const stats = useQuery({ queryKey: ['adminStats'], queryFn: () => api.get<AdminStats>('/api/v1/admin/stats'), refetchInterval: 15000 });
   const links: [string, string, number?, boolean?][] = [
     ['/admin', '📊 Overview', undefined, true], ['/admin/hotels', '🏨 Hotels', stats.data?.pendingHotels],
-    ['/admin/bids', '🔨 Bids'], ['/admin/bookings', '🧾 Bookings & commission'],
+    ['/admin/photos', '📷 Listing photo review'], ['/admin/bids', '🔨 Bids'], ['/admin/bookings', '🧾 Bookings & commission'],
+    ['/admin/reviews', 'Guest reviews'], ['/admin/market', 'Neighbourhood pilot'], ['/admin/audit', 'Audit log'],
   ];
   return (
     <div className="shell">
@@ -27,7 +37,7 @@ export default function AdminShell() {
         ))}
         <div className="foot">
           <div className="small">{me.data?.name}</div>
-          <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { signOut(); nav('/login'); }}>Sign out</button>
+          <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { void leave().catch(() => undefined); }}>Sign out</button>
         </div>
       </aside>
       <main className="main"><Outlet /></main>

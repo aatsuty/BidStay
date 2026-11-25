@@ -92,12 +92,20 @@ class PartnerAdminIT {
         assertEquals(OfferStatus.PENDING, v.offers().get(0).status());
         assertTrue(chat.history(sunrise().getId(), 0).stream().anyMatch(m -> m.getKind().name().equals("REQUEST")));
 
-        var msgs = partner.handleChatText(sunrise().getId(), "counter 1500");
+        long offerId = v.offers().get(0).offerId();
+        BidView newer = bid(57, "1100");
+        var ambiguous = partner.handleChatText(sunrise().getId(), "YES if breakfast is included");
+        assertTrue(ambiguous.get(ambiguous.size() - 1).body().contains("request and round"));
+        assertEquals(OfferStatus.PENDING, bids.get(1L, newer.bidId()).offers().get(0).status());
+
+        bids.raise(1L, v.bidId(), new BigDecimal("1150"));
+        partner.handleChatText(sunrise().getId(), "YES " + offerId + "/1");
+        assertEquals(OfferStatus.PENDING, bids.get(1L, v.bidId()).offers().get(0).status());
+
+        var msgs = partner.handleChatText(sunrise().getId(), "counter 1500 " + offerId + "/2");
         assertEquals("HOTEL", msgs.get(0).sender());
         assertEquals(OfferStatus.COUNTERED, bids.get(1L, v.bidId()).offers().get(0).status());
-
-        var unknown = partner.handleChatText(sunrise().getId(), "hello");
-        assertTrue(unknown.get(unknown.size() - 1).body().contains("did not understand"));
+        assertEquals(OfferStatus.PENDING, bids.get(1L, newer.bidId()).offers().get(0).status());
     }
 
     @Test
@@ -112,13 +120,13 @@ class PartnerAdminIT {
     @Test
     void approvalNeedsAllFourVerifiedDocuments() {
         Long grand = hotels.findByName("Delhi Grand Stay").orElseThrow().getId();
-        assertThrows(ApiException.class, () -> admin.approve(grand));                       // nothing verified
-        for (DocType t : List.of(DocType.GST, DocType.LICENCE, DocType.OWNER_ID)) admin.verifyDocument(grand, t, true);
-        assertThrows(ApiException.class, () -> admin.verifyDocument(grand, DocType.PHOTOS, true));   // never submitted
+        assertThrows(ApiException.class, () -> admin.approve(4L, grand));                       // nothing verified
+        for (DocType t : List.of(DocType.GST, DocType.LICENCE, DocType.OWNER_ID)) admin.verifyDocument(grand, t, true, null, 4L);
+        assertThrows(ApiException.class, () -> admin.verifyDocument(grand, DocType.PHOTOS, true, null, 4L));   // never submitted
         partner.submitDocument(grand, DocType.PHOTOS, "https://example.com/photos");
-        admin.verifyDocument(grand, DocType.PHOTOS, true);
+        admin.verifyDocument(grand, DocType.PHOTOS, true, null, 4L);
 
-        HotelRow live = admin.approve(grand);
+        HotelRow live = admin.approve(4L, grand);
         assertEquals(HotelStatus.ACTIVE, live.status());
         assertTrue(live.allDocsVerified());
     }
@@ -126,7 +134,7 @@ class PartnerAdminIT {
     @Test
     void rejectedHotelReturnsToReviewWhenOwnerResubmits() {
         Long pahar = hotels.findByName("Pahar Palace").orElseThrow().getId();
-        assertEquals(HotelStatus.REJECTED, admin.reject(pahar, "GST number does not match").status());
+        assertEquals(HotelStatus.REJECTED, admin.reject(4L, pahar, "GST number does not match").status());
         partner.submitDocument(pahar, DocType.GST, "07AAAAA0000F1Z5 (corrected)");
         assertEquals(HotelStatus.PENDING_VERIFICATION, hotels.findById(pahar).orElseThrow().getStatus());
     }

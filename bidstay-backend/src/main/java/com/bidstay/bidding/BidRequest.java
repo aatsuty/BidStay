@@ -31,6 +31,8 @@ public class BidRequest {
     private BidStatus status;
     private Instant expiresAt;
     private Instant createdAt;
+    @Version
+    private Long version;
 
     public long nights() {
         return ChronoUnit.DAYS.between(checkIn, checkOut);

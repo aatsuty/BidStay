@@ -1,54 +1,27 @@
-# BidStay app (React Native + Expo)
+# BidStay for Android and iOS
 
-One TypeScript codebase for **Android, iOS and Web**. Expo SDK 58, Expo Router (file-based navigation), TanStack Query (server state, polling).
+The Expo app opens the responsive BidStay portal from `bidstay-portals`. Guests, hotel partners, and admins use the same screens, business rules, and Spring Boot API on the website and inside the app. Android and iOS provide device actions for location, printing receipts, copying invitations, and sharing downloaded documents.
 
-## Run it
+## Run on the same Wi-Fi
 
-```bash
-npm install
-cp .env.example .env        # set EXPO_PUBLIC_API_URL if needed
-npx expo start              # press a (Android), i (iOS), w (web) or scan the QR with Expo Go
-```
-Start the backend first (`docker compose up -d` then `mvn spring-boot:run -Dspring-boot.run.profiles=dev`).
+1. Start BidStay in `bidstay-backend` as described in the [pilot setup](../docs/pilot.md). Verify the homepage at [localhost:8080](http://localhost:8080/).
+2. In `bidstay-app`, run these commands in a separate terminal and scan the QR with Expo Go for SDK 58. Use a trusted Wi-Fi network for local demo access. [Expo Go downloads](https://expo.dev/go?sdkVersion=58)
 
-| Where the app runs | Backend URL to use (Settings tab) |
-|---|---|
-| Web / iOS simulator | `http://localhost:8080` |
-| Android emulator | `http://10.0.2.2:8080` |
-| Real phone | `http://<your computer's LAN IP>:8080` (same Wi-Fi) |
+   ```bash
+   npm ci
+   npx expo start --go --lan --clear
+   ```
 
-Checks: `npm run typecheck`. Production web build: `npx expo export --platform web`.
+The app uses Metro's Wi-Fi host and port 8080 for the portal. The browser and app both show **Hourly stays** on the homepage.
 
-## Screens
+For a different portal host or port, set `EXPO_PUBLIC_PORTAL_URL` in `bidstay-app/.env.local` to the full portal origin and restart Expo. Remove an earlier port 5173 override to use the default port 8080.
 
-| Route | What it does |
-|---|---|
-| `(tabs)/index` | Search: city, check-in, nights, rooms, guests, room type |
-| `hotels` | Pick hotels (or Select all), see price guide, name your price, send the bid |
-| `bid/[id]` | Live offers (polls every 4s), per-hotel countdown, Book, raise bid (max 3 rounds) |
-| `booking/[id]` | Payment hold countdown, pay, confirmation (hotel address revealed only after payment) |
-| `(tabs)/trips` | All your bids and bookings |
-| `(tabs)/profile` | **Dev only:** backend URL and guest user ID used in place of login |
+### Android says it failed to download the remote update
 
-## Try the whole flow on one device
+Open the Expo terminal's address with `/status` on the phone, such as `http://192.168.1.50:8081/status`. When it responds with `packager-status:running`, run `npx expo start --go --lan --clear` and scan the new QR. Check that the homepage also loads in your phone's browser at your computer's Wi-Fi address on port 8080. An Expo tunnel forwards Metro only and requires a separately reachable portal URL.
 
-1. Settings: guest `1`.
-2. Search -> Find hotels -> Select all -> bid `1100` -> Send. Hotel Metro Inn (hidden minimum 1000) accepts instantly; Hotel Sunrise (minimum 1200) waits.
-3. Open the **hotelier portal** (bidstay-portals) as the hotel owner and counter with `1500`, or just reply `COUNTER 1500` in its WhatsApp-style chat.
-4. Back in **My Trips**, open the bid: a counter offer appears. Book it, then Pay.
+## Release configuration
 
-## Code map
+Deploy the Spring Boot JAR with the bundled portal behind HTTPS. Set `EXPO_PUBLIC_PORTAL_URL` to that HTTPS origin when building Android and iOS. An Expo web build redirects to the same portal.
 
-- `src/lib/api.ts`: fetch client, typed errors (reads Spring `ProblemDetail.detail`), 15s timeout
-- `src/lib/types.ts`: mirrors the backend DTOs. Keep in sync with `BidDtos.java`
-- `src/lib/session.tsx`: **auth placeholder** (user/hotel ID headers). Replace with a JWT after OTP login
-- `src/components/ui.tsx`: Button, Card, Chip, Field, Stepper, status badges
-
-## Not done yet
-
-1. OTP login + JWT (backend first), then remove the Settings/Hotel dev tabs from guest builds.
-2. Razorpay checkout. The "Pay" button is dev-only (`__DEV__` or `EXPO_PUBLIC_DEV_PAYMENTS=1`); production shows "coming soon".
-3. Push notifications (`expo-notifications` + FCM) instead of polling; WebSocket later.
-4. Map / "near me" search, filters, hotel photos and detail page (needs backend support).
-5. Cancellation, reviews, ID verification, hourly stays.
-6. Real app icon/splash, EAS build profiles (`eas build`), Play Store / App Store setup.
+Run `npm run typecheck`, `npx expo lint`, and `npx expo export --platform android --platform ios` before creating store builds. Test OTP, Razorpay checkout, uploads, document sharing, receipt printing, and location on a physical Android and iOS device before release.

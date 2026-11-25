@@ -26,7 +26,8 @@ public final class AdminDtos {
     public record Reject(@NotBlank @Size(max = 300) String reason) {}
 
     public record BookingRow(Long id, String hotel, String guest, String status, LocalDate checkIn, LocalDate checkOut,
-                             int rooms, BigDecimal total, BigDecimal commission, Instant createdAt) {}
+                             int rooms, BigDecimal total, BigDecimal commission, Instant createdAt,
+                             Instant arrival, Instant departure) {}
 
     public record BidRow(Long id, String guest, String category, LocalDate checkIn, LocalDate checkOut, int rooms,
                          BigDecimal pricePerNight, int round, String status, long offers, long offersReady, Instant createdAt) {}

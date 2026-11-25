@@ -14,7 +14,7 @@ public interface BidOfferRepository extends JpaRepository<BidOffer, Long> {
 
     List<BidOffer> findByHotelIdAndStatusOrderByCreatedAtDesc(Long hotelId, OfferStatus status);
 
-    List<BidOffer> findByStatusAndExpiresAtBefore(OfferStatus status, Instant cutoff);
+    List<BidOffer> findTop100ByStatusAndExpiresAtBeforeOrderByExpiresAtAscIdAsc(OfferStatus status, Instant cutoff);
 
     List<BidOffer> findByBidRequestIdAndStatusIn(Long bidRequestId, Collection<OfferStatus> statuses);
 }

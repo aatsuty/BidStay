@@ -8,12 +8,12 @@ export interface Me { id: number; name: string; phone: string; role: Role }
 export interface MyHotel { id: number; name: string; area: string; status: HotelStatus; rejectionReason?: string }
 
 export interface HotelOffer {
-  offerId: number; roomType: string; bidPricePerNight: number; listedPrice: number;
+  offerId: number; roomType: string; bidPricePerNight: number; listedPrice: number; minimumPrice: number;
   checkIn: string; checkOut: string; rooms: number; nights: number; round: number; respondBy: string;
 }
 export type HotelAction = 'ACCEPT' | 'COUNTER' | 'DECLINE';
 
-export interface ChatMessage { id: number; sender: 'BOT' | 'HOTEL'; kind: 'REQUEST' | 'SYSTEM' | 'REPLY'; body: string; offerId?: number; at: string }
+export interface ChatMessage { id: number; sender: 'BOT' | 'HOTEL'; kind: 'REQUEST' | 'SYSTEM' | 'REPLY'; body: string; offerId?: number; at: string; channel?: string; whatsappStatus?: string }
 
 export interface RoomRate { roomTypeId: number; category: RoomCategory; name: string; listedPrice: number; minPrice: number; totalRooms: number }
 export interface Rates { autoMode: boolean; autoCounter: boolean; autoCounterPct: number; autoDecline: boolean; rooms: RoomRate[] }
@@ -23,14 +23,16 @@ export interface RoomAvailability { roomTypeId: number; name: string; nights: Ni
 
 export interface PartnerBooking {
   bookingId: number; status: string; roomType: string; checkIn: string; checkOut: string; rooms: number;
-  pricePerNight: number; total: number; commission: number; payout: number; guestName: string; guestPhone: string;
+  pricePerNight?: number; total: number; commission: number; payout: number; guestName: string; guestPhone: string;
+  arrival?: string; departure?: string; hourlyRate?: number;
 }
 export interface Dashboard {
   pendingReplies: number; bidsLast30Days: number; acceptedLast30Days: number; counteredLast30Days: number;
   declinedOrExpiredLast30Days: number; avgReplySeconds?: number; confirmedBookingsLast30Days: number;
   payoutLast30Days: number; commissionLast30Days: number; upcomingStays: number;
 }
-export interface DocumentView { type: DocType; submitted: boolean; verified: boolean; reference?: string }
+export interface DocumentView { type: DocType; submitted: boolean; verified: boolean; reference?: string; versionId?: number }
+export interface StayPolicy { checkInFrom: string | null; checkOutBy: string | null; guestInstructions: string | null }
 
 export interface RoomInput { category: RoomCategory; name: string; maxGuests: number; listedPrice: number; minPrice: number; totalRooms: number }
 export interface RegisterHotel {
@@ -47,5 +49,5 @@ export interface AdminHotel {
   id: number; name: string; city: string; area: string; status: HotelStatus; rejectionReason?: string;
   contactPhone?: string; gstNumber?: string; roomTypes: number; createdAt: string; allDocsVerified: boolean; documents: DocumentView[];
 }
-export interface AdminBooking { id: number; hotel: string; guest: string; status: string; checkIn: string; checkOut: string; rooms: number; total: number; commission: number; createdAt: string }
+export interface AdminBooking { id: number; hotel: string; guest: string; status: string; checkIn: string; checkOut: string; rooms: number; total: number; commission: number; createdAt: string; arrival?: string; departure?: string }
 export interface AdminBid { id: number; guest: string; category: string; checkIn: string; checkOut: string; rooms: number; pricePerNight: number; round: number; status: string; offers: number; offersReady: number; createdAt: string }

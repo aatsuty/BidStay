@@ -22,6 +22,8 @@ public class PartnerMessage {
     @Enumerated(EnumType.STRING)
     private Kind kind;
     private String body;
+    private String channel = "PORTAL";
+    private String providerMessageId;
     private Long bidOfferId;
     private Instant createdAt;
 }

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSession } from './session';
+import { demoMode } from './runtime';
 
 export class ApiError extends Error {
   status: number;
@@ -9,18 +10,20 @@ export class ApiError extends Error {
   }
 }
 
-function make(baseUrl: string, userId: number | null) {
-  async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export function make(baseUrl: string, userId: number | null, token?: string) {
+  async function request<T>(method: string, path: string, body?: unknown, binary = false): Promise<T> {
     let res: Response;
+    const upload = body instanceof FormData;
     try {
       res = await fetch(baseUrl.replace(/\/$/, '') + path, {
         method,
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(userId ? { 'X-User-Id': String(userId) } : {}) },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { ...(upload ? {} : { 'Content-Type': 'application/json' }), Accept: binary ? '*/*' : 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : demoMode && userId ? { 'X-User-Id': String(userId) } : {}) },
+        body: upload ? body : body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {
-      throw new ApiError(`Can't reach the server at ${baseUrl}. Is the backend running?`, 0);
+      throw new ApiError(`Can't reach the server${baseUrl ? ` at ${baseUrl}` : ''}. Is the backend running?`, 0);
     }
+    if (res.ok && binary) return await res.blob() as T;
     const text = await res.text();
     let data: unknown;
     try { data = text ? JSON.parse(text) : undefined; } catch { data = undefined; }
@@ -31,14 +34,16 @@ function make(baseUrl: string, userId: number | null) {
     get: <T,>(p: string) => request<T>('GET', p),
     post: <T,>(p: string, b?: unknown) => request<T>('POST', p, b ?? {}),
     put: <T,>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
+    delete: (p: string) => request<void>('DELETE', p),
+    download: (p: string) => request<Blob>('GET', p, undefined, true),
   };
 }
 
 export type Api = ReturnType<typeof make>;
 
 export function useApi(): Api {
-  const { baseUrl, userId } = useSession();
-  return useMemo(() => make(baseUrl, userId), [baseUrl, userId]);
+  const { baseUrl, userId, token } = useSession();
+  return useMemo(() => make(baseUrl, userId, token), [baseUrl, userId, token]);
 }
 
 export const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
