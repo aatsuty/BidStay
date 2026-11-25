@@ -319,3 +319,16 @@
 @media (max-width: 385px) {
   .guest-nav nav a svg { display: none; }
 }
+
+.guest-ticket-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; }
+.guest-ticket-frame { display: block; width: 100%; height: min(1000px, 90vh); min-height: 460px; border: 1px solid var(--line); border-radius: 16px; background: var(--cream); }
+.guest-ticket-contacts { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.guest-ticket-contacts h3 { color: var(--navy); }
+.guest-ticket-toggle, .guest-ticket-address, .guest-ticket-email { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.guest-ticket-toggle input { margin-left: auto; width: 18px; height: 18px; }
+.guest-ticket-address span { overflow-wrap: anywhere; }
+.guest-ticket-email { align-items: end; }
+.guest-ticket-email .field { flex: 1 1 240px; min-width: 0; }
+.guest-ticket-delivery { display: grid; gap: 5px; margin: 12px 0; }
+.guest-ticket-delivery div { display: flex; gap: 12px; justify-content: space-between; }
+.guest-ticket-delivery dd { margin: 0; color: var(--subtle); }

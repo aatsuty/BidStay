@@ -29,6 +29,7 @@ import HourlySearch from './pages/guest/HourlySearch';
 import Reviews from './pages/admin/Reviews';
 import Market from './pages/admin/Market';
 import { Checkout, Offers, Trips } from './pages/guest/TripFlow';
+import BookingTicket from './pages/guest/BookingTicket';
 
 export function useMe() {
   const api = useApi();
@@ -41,10 +42,14 @@ const home = (role: Role) => (role === 'ADMIN' ? '/admin' : role === 'HOTEL_STAF
 function Guard({ role, children }: { role: Role; children: React.ReactNode }) {
   const { userId } = useSession();
   const me = useMe();
-  if (userId == null) return <Navigate to="/login" replace />;
+  const { pathname, search } = useLocation();
+  const bookingLink = role === 'HOTEL_STAFF' && pathname === '/hotel/bookings' && /^\?hotel=\d+&booking=\d+$/.test(search)
+    ? pathname + search : undefined;
+  const login = <Navigate to="/login" replace state={bookingLink ? { bookingLink } : undefined} />;
+  if (userId == null) return login;
   if (me.isLoading) return <div className="main"><Loading /></div>;
-  if (me.error || !me.data) return <Navigate to="/login" replace />;
-  if (me.data.role !== role) return <Navigate to={home(me.data.role)} replace />;
+  if (me.error || !me.data) return login;
+  if (me.data.role !== role) return bookingLink ? login : <Navigate to={home(me.data.role)} replace />;
   return <>{children}</>;
 }
 
@@ -60,6 +65,7 @@ export default function App() {
         <Route path="/hourly" element={<HourlySearch />} />
         <Route path="/offers/:bidId" element={<Offers />} />
         <Route path="/checkout/:bookingId" element={<Checkout />} />
+        <Route path="/ticket/:bookingId" element={<BookingTicket />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/alerts" element={<Alerts />} />
       </Route>

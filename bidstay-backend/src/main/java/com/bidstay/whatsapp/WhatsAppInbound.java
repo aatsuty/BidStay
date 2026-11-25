@@ -54,6 +54,10 @@ class WhatsAppInbound {
         String text = message.path("text").path("body").asText().strip();
         if (id.isBlank() || id.length() > 255 || !from.matches("91[6-9][0-9]{9}") || text.isBlank()) return;
         if (text.length() > 500) return;
+        if ("STOP".equalsIgnoreCase(text) || "UNSUBSCRIBE".equalsIgnoreCase(text)) {
+            notifications.stop(from.substring(2), id);
+            return;
+        }
         var matcher = ACTION.matcher(text.toUpperCase(Locale.ROOT));
         boolean reference = matcher.matches() && matcher.group(3) != null;
         if (quote.isBlank() && !reference) return;

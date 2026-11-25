@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { ListChecks, MessageCircle } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { errMsg, useApi } from '../../lib/api';
@@ -12,7 +12,7 @@ export default function Requests() {
   const { hotel } = useHotel();
   const api = useApi();
   const now = useNow();
-  const [section, setSection] = useState<'requests' | 'chat'>('requests');
+  const [section, setSection] = useState<'requests' | 'activity'>('requests');
   const offers = useQuery({
     queryKey: ['offers', hotel.id],
     queryFn: () => api.get<HotelOffer[]>(`/api/v1/partner/hotels/${hotel.id}/offers`),
@@ -21,10 +21,11 @@ export default function Requests() {
 
   return (
     <>
-      <PageHead title="Bid requests" sub="Review bids and reply from your partner inbox." />
+      <PageHead title="Bid requests" sub="Review guest bids and respond before the deadline." />
+      <WhatsAppPreference endpoint={`/api/v1/partner/hotels/${hotel.id}/whatsapp`} label="Receive bid alerts on WhatsApp" />
       <div className="partner-view-tabs" aria-label="Partner requests view">
         <button className="btn ghost" aria-pressed={section === 'requests'} onClick={() => setSection('requests')}><ListChecks size={16} /> Requests</button>
-        <button className="btn ghost" aria-pressed={section === 'chat'} onClick={() => setSection('chat')}><MessageCircle size={16} /> Inbox</button>
+        <button className="btn ghost" aria-pressed={section === 'activity'} onClick={() => setSection('activity')}><MessageCircle size={16} /> Activity</button>
       </div>
       <div className={`split partner-split view-${section}`}>
         <div className="partner-requests-panel">
@@ -32,12 +33,12 @@ export default function Requests() {
           {!offers.isLoading && !offers.data?.length && (
             <div className="card">
               <h3>No bid requests waiting</h3>
-              <p className="muted small">Guest bids below your auto-accept rules show up here with a countdown, and in the partner chat.</p>
+              <p className="muted small">Guest bids that need a reply will appear here with a countdown.</p>
             </div>
           )}
           {offers.data?.map((o) => <RequestCard key={`${o.offerId}-${o.round}`} offer={o} now={now} />)}
         </div>
-        <div className="partner-chat-panel"><WhatsAppChat /></div>
+        <div className="partner-activity-panel"><PartnerActivity key={hotel.id} /></div>
       </div>
     </>
   );
@@ -91,49 +92,28 @@ function rich(text: string) {
   return text.split(/(\*[^*]+\*)/g).map((p, i) => (p.startsWith('*') && p.endsWith('*') && p.length > 2 ? <b key={i}>{p.slice(1, -1)}</b> : <span key={i}>{p}</span>));
 }
 
-function WhatsAppChat() {
+function PartnerActivity() {
   const { hotel } = useHotel();
   const api = useApi();
-  const qc = useQueryClient();
-  const [text, setText] = useState('');
-  const bodyRef = useRef<HTMLDivElement>(null);
-
-  const chat = useQuery({
+  const activity = useQuery({
     queryKey: ['chat', hotel.id],
     queryFn: () => api.get<ChatMessage[]>(`/api/v1/partner/hotels/${hotel.id}/chat`),
-    refetchInterval: 3000,
-  });
-  const send = useMutation({
-    mutationFn: (t: string) => api.post<ChatMessage[]>(`/api/v1/partner/hotels/${hotel.id}/chat`, { text: t }),
-    onSuccess: () => { setText(''); qc.invalidateQueries({ queryKey: ['chat', hotel.id] }); qc.invalidateQueries({ queryKey: ['offers', hotel.id] }); },
+    refetchInterval: 4000,
   });
 
-  const last = chat.data?.[chat.data.length - 1]?.id;
-  useEffect(() => { bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }); }, [last]);
-
-  const submit = (t: string) => { if (t.trim() && !send.isPending) send.mutate(t.trim()); };
-
-  return (
-    <div className="wa">
-      <div className="wa-head">
-        <div className="wa-avatar">B</div>
-        <div><b>BidStay</b><small>Partner inbox · {hotel.name}</small></div>
-        <WhatsAppPreference endpoint={`/api/v1/partner/hotels/${hotel.id}/whatsapp`} label="WhatsApp alerts" compact />
-      </div>
-      <div className="wa-body" ref={bodyRef}>
-        {chat.isLoading && <span className="muted small">Loading chat…</span>}
-        {chat.data?.map((m) => (
-          <div key={m.id} className={'bubble ' + (m.sender === 'HOTEL' ? 'me' : '') + (m.kind === 'REQUEST' ? ' is-request' : '')}>
-            {rich(m.body)}
-            <span className="t">{m.channel === 'WHATSAPP' ? 'WhatsApp · ' : ''}{fmtTime(m.at)}{m.whatsappStatus ? ` · WhatsApp ${m.whatsappStatus}` : ''}</span>
-          </div>
-        ))}
-      </div>
-      {send.error ? <div className="error" style={{ margin: 0, borderRadius: 0 }}>{errMsg(send.error)}</div> : null}
-      <form className="wa-input" onSubmit={(e) => { e.preventDefault(); submit(text); }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply using the request reference" maxLength={200} />
-        <button type="submit" aria-label="Send" disabled={send.isPending}>➤</button>
-      </form>
-    </div>
-  );
+  return <section className="card partner-activity" aria-label="Bid activity">
+    <h2>Bid activity</h2>
+    <ErrorBox error={activity.error} />
+    {activity.isLoading && <p role="status">Loading activity…</p>}
+    {activity.data?.length === 0 && <p className="muted small">Bid replies and delivery updates will appear here.</p>}
+    <ul>
+      {activity.data?.slice().reverse().map((event) => <li key={event.id}>
+        <div>{rich(event.body)}</div>
+        <p className="muted small">
+          {event.channel === 'WHATSAPP' ? 'WhatsApp' : event.sender === 'HOTEL' ? 'Partner portal' : 'BidStay'} · {fmtTime(event.at)}
+          {event.whatsappStatus ? ` · WhatsApp ${event.whatsappStatus}` : ''}
+        </p>
+      </li>)}
+    </ul>
+  </section>;
 }

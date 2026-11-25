@@ -143,9 +143,10 @@ public class PartnerController {
     }
 
     @GetMapping("/hotels/{hotelId}/bookings")
-    public List<BookingRow> bookings(@CallerId Long userId, @PathVariable Long hotelId) {
+    public List<BookingRow> bookings(@CallerId Long userId, @PathVariable Long hotelId,
+                                     @RequestParam(required = false) Long bookingId) {
         access.requireHotelAccess(userId, hotelId);
-        return service.bookings(hotelId);
+        return service.bookings(hotelId, bookingId);
     }
 
     @GetMapping("/hotels/{hotelId}/stay-policy")

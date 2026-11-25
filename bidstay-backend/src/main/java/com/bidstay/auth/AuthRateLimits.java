@@ -54,8 +54,8 @@ class AuthRateLimits implements HandlerInterceptor, WebMvcConfigurer {
         if (route == null) return true;
 
         Limit limit = switch (route.toString()) {
-            case "/api/v1/auth/guest/code", "/api/v1/auth/staff/code" -> new Limit("otp-send", sends);
-            case "/api/v1/auth/guest/verify", "/api/v1/auth/staff/verify" -> new Limit("otp-verify", checks);
+            case "/api/v1/auth/guest/code", "/api/v1/auth/staff/code", "/api/v1/auth/guest/ticket-email/code" -> new Limit("otp-send", sends);
+            case "/api/v1/auth/guest/verify", "/api/v1/auth/staff/verify", "/api/v1/auth/guest/ticket-email/verify" -> new Limit("otp-verify", checks);
             case "/api/v1/auth/admin/sign-in" -> new Limit("admin-sign-in", adminAttempts);
             default -> null;
         };

@@ -89,6 +89,17 @@ class WhatsAppIT {
     }
 
     @Test
+    void stopDisablesWhatsAppAndDuplicateWebhookDoesNotUndoANewOptIn() throws Exception {
+        notifications.setConsent(3L, 1L, true);
+        String event = message("wamid.stop", "919999900003", "STOP").replace("\"context\":{\"id\":\"wamid.bid-one\"},", "");
+        submit(event);
+        org.junit.jupiter.api.Assertions.assertFalse(notifications.consent(3L, 1L));
+        notifications.setConsent(3L, 1L, true);
+        submit(event);
+        assertTrue(notifications.consent(3L, 1L));
+    }
+
+    @Test
     void queuedRequestForWithdrawnBidIsSkipped() {
         when(transport.enabled()).thenReturn(false);
         notifications.setConsent(3L, 1L, true);
