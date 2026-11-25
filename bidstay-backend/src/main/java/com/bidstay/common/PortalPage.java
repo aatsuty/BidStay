@@ -27,7 +27,7 @@ class PortalPage {
         this.demo = environment.acceptsProfiles(Profiles.of("dev"));
     }
 
-    @GetMapping(value = {"/", "/index.html", "/hourly", "/trips", "/alerts", "/login", "/offers/{bidId}", "/checkout/{bookingId}",
+    @GetMapping(value = {"/", "/index.html", "/hourly", "/trips", "/alerts", "/login", "/offers/{bidId}", "/checkout/{bookingId}", "/ticket/{bookingId}",
             "/hotel", "/hotel/**", "/admin", "/admin/**"}, produces = MediaType.TEXT_HTML_VALUE)
     ResponseEntity<String> show() throws IOException {
         if (!index.exists()) {

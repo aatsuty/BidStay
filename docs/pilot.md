@@ -23,7 +23,9 @@ Set credentials in the backend environment or secret manager.
 | Private document uploads | Set `BIDSTAY_DOCUMENT_BUCKET` and `AWS_REGION` for a private S3 bucket. Grant the backend role access to the `hotel-documents/` and `listing-media/` prefixes. Development can store files locally under `.bidstay-documents`. Uploads create immutable versions and reviews record the reviewer and decision. Replacing an approved document pauses the listing for review. |
 | Razorpay | Set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, and a `RAZORPAY_REFERENCE_PREFIX` unique to each deployment sharing the Razorpay account (1–19 letters, digits or hyphens). Register `POST /api/v1/webhooks/razorpay` for `payment_link.paid`, `refund.processed`, and `refund.failed`. Start with Razorpay test mode. |
 | Cancellation | Pending checkouts can be cancelled. For a free-cancellation pilot, set `BIDSTAY_FREE_CANCELLATION=true` to quote the cutoff on new bookings. The cutoff is noon India time one day before check-in. Eligible paid cancellations release inventory and queue a refund. Previously created bookings retain their stored policy. |
-| WhatsApp | Set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, and the approved template names listed below. Subscribe the app to messages and use `/api/v1/webhooks/whatsapp` for verification and signed events. Staff opt in from the inbox after phone verification. Guests opt in from **My trips**. |
+| WhatsApp | Set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, and the approved template names listed below. Subscribe the app to messages and use `/api/v1/webhooks/whatsapp` for verification and signed events. Staff opt in on **Bid requests** after phone verification. Guests opt in from **My trips** or checkout. A recipient can send `STOP` to disable WhatsApp messages from BidStay. |
+| Ticket SMS | Set `BIDSTAY_PUBLIC_ORIGIN` to the deployed HTTPS origin, and set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_SMS_MESSAGING_SERVICE_SID`. Configure the sender and register the message body and URL as required for the India route. The body is `BidStay booking #<id> confirmed. View your ticket: <ticket URL>`. |
+| Ticket email | Set `BIDSTAY_PUBLIC_ORIGIN`, `RESEND_API_KEY`, and `BIDSTAY_TICKET_EMAIL_FROM` using a verified sender domain. Guests verify an email address with a one-time code before receiving the full HTML ticket. |
 | AI reply suggestions | Set `OPENAI_API_KEY` and optionally `WHATSAPP_AI_MODEL`. The assistant receives the text of a hotel reply and proposes a command. A staff member must send the explicit command before the bid changes. |
 
 ## Verify the first real stay
@@ -33,6 +35,8 @@ Set credentials in the backend environment or secret manager.
 3. Cancel the booking within its displayed free-cancellation window. Check that availability returns, the guest keeps the original payment receipt, and the refund reference and final status agree with Razorpay.
 
 The guest receipt records the payment and any recorded refund reference. Agree on tax invoice and settlement responsibilities with the hotel before accepting live money.
+
+From a paid booking, open **View or print ticket** to see the guest name, hotel address, stay times, room and guest counts, stay terms, and payment or refund details. The same ticket layout prints in the browser and in updated Expo builds. A successful Razorpay capture queues delivery to all eligible channels. SMS goes to the verified guest phone if enabled, email goes to the verified address, and WhatsApp uses the guest's opt-in. SMS and WhatsApp link to the ticket, which the booking owner opens after sign-in. **WhatsApp the hotel** opens a draft with the reference and a hotelier portal link. The staff account must belong to that property. Demo payments render printable sample tickets without queuing provider messages.
 
 To test listed-price checkout, open a dated hotel result and choose **Book at listed price**. For hourly checkout, first save the overnight policy in **Profile & documents**, then publish 3- and 6-hour prices for the room under **Rates & rules → Hourly stays**. Select **Hourly** above the search form and choose an arrival time. Published 3- and 6-hour room rates also appear in the property gallery. Complete the booking and verify the slot in both **My trips** and the hotel’s **Bookings** screen.
 
@@ -47,8 +51,9 @@ Create approved WhatsApp templates with the configured `WHATSAPP_TEMPLATE_LANGUA
 | `WHATSAPP_HOTEL_BID_TEMPLATE` | Request reference, stay dates, room count, offer price per room per night |
 | `WHATSAPP_GUEST_OFFER_TEMPLATE` | Bid ID, offer price per room per night |
 | `WHATSAPP_BOOKING_TEMPLATE` | Booking ID |
+| `WHATSAPP_GUEST_TICKET_TEMPLATE` | Booking ID, hotel name, stay summary, HTTPS guest ticket URL |
 
-Give the hotel template instructions for quoting the original message or appending its request reference. For example, a staff member can send `COUNTER 1500 42/1`. Quotes are tied to the receiving phone, hotel, offer, and bid round. Delivery statuses in the partner inbox come from Meta.
+Give the hotel template instructions for quoting the original message or appending its request reference. For example, a staff member can send `COUNTER 1500 42/1`. Quotes are tied to the receiving phone, hotel, offer, and bid round. The **Bid activity** panel shows replies and delivery statuses reported by Meta. On staging, confirm one bid through WhatsApp, test opt-out, and verify SMS, email and WhatsApp delivery for one paid test booking.
 
 ## Security operations
 

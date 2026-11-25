@@ -1,5 +1,7 @@
 package com.bidstay.whatsapp;
 
+import com.bidstay.booking.BookingView;
+import com.bidstay.booking.TicketLinks;
 import com.bidstay.common.Money;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -17,23 +19,31 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
+
+import static com.bidstay.inventory.InventoryService.STAY_ZONE;
 
 @Service
 @RequiredArgsConstructor
 public class WhatsAppNotifications {
+    private static final DateTimeFormatter TICKET_TIME = DateTimeFormatter.ofPattern("d MMM uuuu HH:mm", Locale.ENGLISH).withZone(STAY_ZONE);
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final WhatsAppClient client;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final TicketLinks ticketLinks;
 
     @Value("${bidstay.whatsapp.hotel-bid-template:}") private String hotelBidTemplate;
     @Value("${bidstay.whatsapp.guest-offer-template:}") private String guestOfferTemplate;
     @Value("${bidstay.whatsapp.booking-template:}") private String bookingTemplate;
+    @Value("${bidstay.whatsapp.guest-ticket-template:}") private String guestTicketTemplate;
 
     boolean enabled() { return client.enabled(); }
 
@@ -66,13 +76,55 @@ public class WhatsAppNotifications {
                 encode(List.of(bidId.toString(), Money.inr(price))), offerId, round, deadline);
     }
 
-    public void booked(Long guestId, Long hotelId, Long bookingId, Long messageId) {
-        if (!enabled() || bookingTemplate.isBlank()) return;
+    public void booked(Long guestId, Long hotelId, BookingView booking, Long messageId) {
+        if (!enabled()) return;
+        guestTicket(guestId, booking);
+        if (bookingTemplate.isBlank()) return;
+        Long bookingId = booking.bookingId();
         Instant deadline = clock.instant().plusSeconds(86_400);
         String event = "booking-" + bookingId;
         String contents = encode(List.of(bookingId.toString()));
-        enqueueForGuest(guestId, event, bookingTemplate, contents, null, null, deadline);
+        if (!ticketAvailable()) enqueueForGuest(guestId, event, bookingTemplate, contents, null, null, deadline);
         enqueueForHotel(hotelId, event, bookingTemplate, contents, messageId, null, null, deadline);
+    }
+
+    private boolean ticketAvailable() { return enabled() && ticketLinks.enabled() && !guestTicketTemplate.isBlank(); }
+
+    public void guestTicket(Long guestId, BookingView booking) {
+        if (!ticketAvailable()) return;
+        long id = booking.bookingId();
+        var shortStay = booking.shortStay();
+        String dates = shortStay == null ? booking.checkIn() + " to " + booking.checkOut()
+                : TICKET_TIME.format(shortStay.arrival()) + " to " + TICKET_TIME.format(shortStay.departure()) + " IST";
+        String stay = dates + " · Rooms " + booking.rooms() + " · Paid " + Money.inrExact(booking.totalAmount());
+        jdbc.update("""
+                insert into whatsapp_outbox (consent_id, event_key, template_name, content, send_before, ticket_booking_id)
+                select id, ?, ?, ?, ?, ? from whatsapp_consents where user_id = ? and hotel_id is null and enabled
+                on conflict (consent_id, event_key) do nothing
+                """, "ticket-" + id, guestTicketTemplate,
+                encode(List.of(String.valueOf(id), booking.hotelName(), stay, ticketLinks.guest(id))),
+                Timestamp.from(clock.instant().plusSeconds(86_400)), id, guestId);
+    }
+
+    public Optional<String> guestTicketState(long guestId, long bookingId) {
+        return jdbc.query("""
+                select upper(coalesce(d.status, q.state)) from whatsapp_outbox q
+                join whatsapp_consents c on c.id = q.consent_id
+                left join whatsapp_delivery d on d.provider_message_id = q.provider_message_id
+                where c.user_id = ? and c.hotel_id is null and q.event_key = ?
+                """, (rs, row) -> rs.getString(1), guestId, "ticket-" + bookingId).stream().findFirst();
+    }
+
+    void stop(String phone, String messageId) {
+        jdbc.update("""
+                with first_seen as (
+                    insert into whatsapp_opt_out_events(provider_message_id) values (?)
+                    on conflict do nothing returning provider_message_id
+                )
+                update whatsapp_consents c set enabled = false, changed_at = now()
+                from users u where u.id = c.user_id and u.phone = ? and c.enabled
+                   and exists (select 1 from first_seen)
+                """, messageId, phone);
     }
 
     void reply(long consent, String messageId, String text, Instant deadline) {
@@ -111,6 +163,10 @@ public class WhatsAppNotifications {
             var jobs = jdbc.query("""
                     select q.id, q.event_key, q.template_name, q.content, q.attempts, u.phone,
                            (c.enabled and q.send_before > now() and
+                           (q.ticket_booking_id is null or exists (
+                              select 1 from bookings b where b.id = q.ticket_booking_id
+                                and b.guest_id = u.id and b.status = 'CONFIRMED'
+                           )) and
                            (q.offer_id is null or exists (
                               select 1 from bid_offers o join bid_requests b on b.id = o.bid_request_id
                               where o.id = q.offer_id and o.round = q.round and b.status = 'OPEN'

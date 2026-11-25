@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../lib/api';
 import { fmtDate, fmtIndiaTime, inr } from '../../lib/format';
 import type { PartnerBooking } from '../../lib/types';
@@ -8,16 +9,25 @@ import { useHotel } from './HotelContext';
 export default function Bookings() {
   const { hotel } = useHotel();
   const api = useApi();
-  const q = useQuery({ queryKey: ['bookings', hotel.id], queryFn: () => api.get<PartnerBooking[]>(`/api/v1/partner/hotels/${hotel.id}/bookings`) });
+  const [params] = useSearchParams();
+  const bookingId = params.get('booking');
+  const propertyId = params.get('hotel');
+  const valid = (!propertyId || propertyId === String(hotel.id)) && (!bookingId || /^\d{1,18}$/.test(bookingId));
+  const q = useQuery({
+    queryKey: ['bookings', hotel.id, bookingId], enabled: valid,
+    queryFn: () => api.get<PartnerBooking[]>(`/api/v1/partner/hotels/${hotel.id}/bookings` + (bookingId ? '?bookingId=' + bookingId : '')),
+  });
   const total = (q.data ?? []).reduce((s, b) => s + b.payout, 0);
   return (
     <>
-      <PageHead title="Bookings" sub="Paid bookings. Guest contact appears only after payment." />
+      <PageHead title={bookingId ? 'Booking #' + bookingId : 'Bookings'} sub="Paid bookings. Guest contact appears only after payment." />
+      {bookingId && <p><Link to="/hotel/bookings">View all bookings</Link></p>}
+      {!valid && <div className="card">This booking is unavailable for the active property.</div>}
       <ErrorBox error={q.error} />
       {q.isLoading && <Loading />}
-      {q.data && (
+      {valid && q.data && (
         <div className="card">
-          {!q.data.length ? <p className="muted">No paid bookings yet.</p> : (
+          {!q.data.length ? <p className="muted">{bookingId ? 'This confirmed booking was not found for this property.' : 'No paid bookings yet.'}</p> : (
             <div className="table-wrap"><table>
               <thead><tr><th>#</th><th>Guest</th><th>Room</th><th>Stay</th><th className="right">Rate</th><th className="right">Total</th><th className="right">BidStay fee</th><th className="right">Your payout</th></tr></thead>
               <tbody>{q.data.map((b) => (

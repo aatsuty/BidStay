@@ -11,6 +11,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -27,18 +28,29 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "bidstay.razorpay.webhook-secret=payment-it-secret")
+@SpringBootTest(properties = {
+        "bidstay.razorpay.webhook-secret=payment-it-secret",
+        "bidstay.tickets.public-origin=https://tickets.example.test",
+        "bidstay.whatsapp.token=fixture-token", "bidstay.whatsapp.phone-number-id=101",
+        "bidstay.whatsapp.app-secret=fixture-secret", "bidstay.whatsapp.guest-ticket-template=bidstay_guest_ticket"
+})
 @AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("dev")
@@ -50,7 +62,68 @@ class RazorpayIT {
     @Autowired BookingService bookings;
     @Autowired JdbcTemplate jdbc;
     @Autowired MockMvc mvc;
+    @Autowired BookingTicketDelivery delivery;
+    @Autowired TicketContacts contacts;
     @MockBean RazorpayClient gateway;
+    @MockBean TicketProviders providers;
+    @MockBean TaskScheduler scheduler;
+
+    @Test
+    void confirmedBookingQueuesEveryAvailableChannelAndTicketRequiresOwnership() throws Exception {
+        when(providers.smsEnabled()).thenReturn(true);
+        when(providers.emailEnabled()).thenReturn(true);
+        String address = "guest@example.test";
+        var verification = new java.util.concurrent.atomic.AtomicReference<String>();
+        when(providers.email(eq(address), eq("Verify your BidStay ticket email"), anyString(), anyString()))
+                .thenAnswer(call -> {
+                    String html = call.getArgument(2);
+                    var code = java.util.regex.Pattern.compile("<strong>([0-9]{6})</strong>").matcher(html);
+                    org.junit.jupiter.api.Assertions.assertTrue(code.find());
+                    verification.set(code.group(1));
+                    return "email-verification";
+                });
+        contacts.sendEmailCode(1L, address);
+        assertNull(contacts.contact(1L).email());
+        assertThrows(com.bidstay.common.ApiException.class, () -> contacts.sendEmailCode(2L, address));
+        assertEquals(address, contacts.verifyEmail(1L, verification.get()).email());
+        assertThrows(com.bidstay.common.ApiException.class, () -> contacts.verifyEmail(1L, verification.get()));
+        jdbc.update("update users set guest_phone_verified = true where id = 1");
+        jdbc.update("insert into whatsapp_consents (user_id, hotel_id, enabled) values (1, null, true)");
+
+        long id = checkout(41, "plink_ticket");
+        String ticket = "/api/v1/bookings/" + id + "/ticket";
+        mvc.perform(get(ticket).header("X-User-Id", 1)).andExpect(status().isConflict());
+        String event = event(id, "plink_ticket", "pay_ticket", 300_000);
+        submit(event);
+        submit(event);
+        String url = "https://tickets.example.test/ticket/" + id;
+        assertEquals(2, jdbc.queryForObject("select count(*) from booking_ticket_outbox where booking_id = ?", Integer.class, id));
+        assertEquals(1, jdbc.queryForObject("select count(*) from whatsapp_outbox where ticket_booking_id = ?", Integer.class, id));
+        org.junit.jupiter.api.Assertions.assertTrue(jdbc.queryForObject(
+                "select content from whatsapp_outbox where ticket_booking_id = ?", String.class, id).contains(url));
+        mvc.perform(get(ticket).header("X-User-Id", 2)).andExpect(status().isNotFound());
+        mvc.perform(get(ticket).header("X-User-Id", 1)).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().string(containsString("Booking ticket")))
+                .andExpect(content().string(containsString("Hotel Sunrise Paharganj")))
+                .andExpect(content().string(containsString("pay_ticket")));
+        mvc.perform(get(ticket + "/delivery").header("X-User-Id", 1))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.channels.length()").value(3));
+        mvc.perform(get("/api/v1/partner/hotels/1/bookings").param("bookingId", Long.toString(id)).header("X-User-Id", 5))
+                .andExpect(status().isForbidden());
+
+        when(providers.sms(anyString(), anyString())).thenReturn("sms-ticket");
+        when(providers.email(eq(address), eq("BidStay ticket #" + id), anyString(), eq("booking-ticket-" + id)))
+                .thenReturn("email-ticket");
+        delivery.deliver();
+        delivery.deliver();
+        verify(providers).sms(anyString(), contains(url));
+        verify(providers).email(eq(address), eq("BidStay ticket #" + id), contains("pay_ticket"), eq("booking-ticket-" + id));
+        assertEquals(2, jdbc.queryForObject(
+                "select count(*) from booking_ticket_outbox where booking_id = ? and state = 'SUBMITTED'", Integer.class, id));
+        contacts.removeEmail(1L);
+        jdbc.update("update users set guest_phone_verified = false where id = 1");
+    }
 
     @Test
     void signedCaptureConfirmsOnceAndCancellationQueuesRefund() throws Exception {

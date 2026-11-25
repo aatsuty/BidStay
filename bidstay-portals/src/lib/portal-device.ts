@@ -1,4 +1,5 @@
-type DeviceAction = { action: 'copy' | 'print'; text: string }
+type DeviceAction = { action: 'copy'; text: string }
+  | { action: 'print'; text: string; html?: string }
   | { action: 'location' }
   | { action: 'share'; name: string; base64: string };
 type DeviceResponse<T> = { id: number; result: T; error?: string };

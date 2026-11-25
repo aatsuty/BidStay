@@ -58,6 +58,7 @@ public class BookingService {
     private final JdbcTemplate jdbc;
     private final HourlyStays hourly;
     private final BookingReviews reviews;
+    private final BookingTicketDelivery ticketDelivery;
     @Value("${bidstay.booking.free-cancellation:false}") private boolean freeCancellation;
 
     /** Called by BidService inside its transaction: hold rooms and create the unpaid booking atomically. */
@@ -221,9 +222,13 @@ public class BookingService {
                         + "Total " + Money.inr(b.getTotalAmount()) + " · BidStay commission " + Money.inr(b.getCommissionAmount())
                         + " · Your payout " + Money.inr(b.getTotalAmount().subtract(b.getCommissionAmount())) + "\n"
                         + "Guest: " + guest, null);
-        whatsapp.booked(b.getGuestId(), b.getHotelId(), b.getId(), message.getId());
         alerts.booking(b.getGuestId(), b.getId(), "CONFIRMED");
-        return toView(b);
+        BookingView view = toView(b);
+        if (!view.receipt().demo()) {
+            ticketDelivery.enqueue(b.getGuestId(), b.getId());
+            whatsapp.booked(b.getGuestId(), b.getHotelId(), view, message.getId());
+        }
+        return view;
     }
 
     public Instant cancellationDeadline(LocalDate checkIn) {
@@ -305,6 +310,47 @@ public class BookingService {
                 .orElseThrow(() -> ApiException.notFound("Booking"));
         return toView(b);
     }
+
+    @Transactional(readOnly = true)
+    public TicketDetails ticket(long guestId, long bookingId) {
+        var booking = bookings.findById(bookingId).filter(b -> b.getGuestId().equals(guestId))
+                .orElseThrow(() -> ApiException.notFound("Booking"));
+        if (booking.getPaymentRef() == null) throw ApiException.conflict("Your ticket becomes available after payment.");
+        return jdbc.queryForObject("""
+                select u.name, h.contact_phone, coalesce(b.guest_count, r.guests)
+                from bookings b join users u on u.id = b.guest_id join hotels h on h.id = b.hotel_id
+                left join bid_requests r on r.id = b.bid_request_id where b.id = ?
+                """, (rs, row) -> new TicketDetails(toView(booking), rs.getString(1),
+                contactNumber(rs.getString(2)), rs.getObject(3, Integer.class), booking.getHotelId()), bookingId);
+    }
+
+    List<BookingTicketDelivery.DeliveryStatus> ticketDelivery(long guestId, long bookingId) {
+        var channels = new java.util.ArrayList<>(ticketDelivery.statuses(bookingId));
+        whatsapp.guestTicketState(guestId, bookingId).ifPresent(state ->
+                channels.add(new BookingTicketDelivery.DeliveryStatus("WHATSAPP", state)));
+        return channels;
+    }
+
+    @Transactional
+    void deliverTicket(long guestId, long bookingId) {
+        Booking b = bookings.lockById(bookingId).filter(booking -> booking.getGuestId().equals(guestId))
+                .orElseThrow(() -> ApiException.notFound("Booking"));
+        BookingView view = toView(b);
+        if (view.status() != BookingStatus.CONFIRMED || view.receipt() == null || view.receipt().demo()) {
+            throw ApiException.conflict("Ticket delivery is available for paid, confirmed bookings.");
+        }
+        ticketDelivery.enqueue(guestId, bookingId);
+        whatsapp.guestTicket(guestId, view);
+    }
+
+    private String contactNumber(String value) {
+        if (value == null) return null;
+        String phone = value.replaceAll("[ +().-]", "");
+        if (phone.matches("91[6-9][0-9]{9}")) return phone.substring(2);
+        return phone.matches("[6-9][0-9]{9}") ? phone : null;
+    }
+
+    record TicketDetails(BookingView booking, String guestName, String hotelPhone, Integer guests, long hotelId) {}
 
     @Transactional(readOnly = true)
     public List<DirectTrip> directTrips(Long guestId, long before) {

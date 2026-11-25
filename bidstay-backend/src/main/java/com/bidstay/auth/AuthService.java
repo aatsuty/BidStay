@@ -63,7 +63,9 @@ class AuthService {
                     on conflict (phone) do nothing
                     """, phone, displayName(name, "Guest"));
             var user = users.findByPhone(phone).orElseThrow();
-            return user.getRole() == Role.GUEST ? issueSession(user) : null;
+            if (user.getRole() != Role.GUEST) return null;
+            jdbc.update("update users set guest_phone_verified = true where id = ? and not guest_phone_verified", user.getId());
+            return issueSession(user);
         });
     }
 

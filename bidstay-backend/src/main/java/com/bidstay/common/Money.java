@@ -16,6 +16,13 @@ public final class Money {
         return "₹" + f.format(v.setScale(0, RoundingMode.HALF_UP));
     }
 
+    public static String inrExact(BigDecimal value) {
+        NumberFormat format = NumberFormat.getNumberInstance(Locale.forLanguageTag("en-IN"));
+        format.setMinimumFractionDigits(2);
+        format.setMaximumFractionDigits(2);
+        return "₹" + format.format(value);
+    }
+
     public static BigDecimal roundUpTo50(BigDecimal v) {
         return v.divide(FIFTY, 0, RoundingMode.CEILING).multiply(FIFTY);
     }

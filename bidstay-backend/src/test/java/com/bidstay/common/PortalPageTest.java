@@ -19,7 +19,7 @@ class PortalPageTest {
             "<meta name=\"bidstay-demo\" content=\"disabled\"><title>BidStay</title>".getBytes(StandardCharsets.UTF_8));
 
     @ParameterizedTest
-    @ValueSource(strings = {"/", "/hourly", "/checkout/42", "/hotel/rates", "/admin/market"})
+    @ValueSource(strings = {"/", "/hourly", "/checkout/42", "/ticket/42", "/hotel/rates", "/admin/market"})
     void servesPortalAtBrowserRoutes(String route) throws Exception {
         var mvc = MockMvcBuilders.standaloneSetup(new PortalPage(INDEX, new MockEnvironment())).build();
         mvc.perform(get(route)).andExpect(status().isOk())

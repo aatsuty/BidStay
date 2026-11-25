@@ -16,7 +16,7 @@ Start the backend with the `dev` profile first. Sign in with one of the seeded a
 | BidStay admin (user 4) | `/admin` | Approvals, bids, bookings, commission |
 
 ## Hotelier portal
-- **Requests**: bid cards with a reply countdown (Accept / Decline / Counter) next to a **WhatsApp-style chat**. The chat understands `YES`, `NO`, `COUNTER 1500`, exactly like the demo. Cards and chat are two views of the same data.
+- **Requests**: bid cards with a reply countdown and Accept, Decline and Counter actions. **Bid activity** shows replies, their source and WhatsApp delivery status.
 - **Rates & rules**: listed and private minimum price per room, Automatic mode (accept at/above minimum), auto-counter (within 5-20% below the minimum), auto-decline, and a "try a guest bid" tester that shows what each rule would do.
 - **Availability**: next 14 nights per room type; change rooms per night (cannot go below booked or held rooms).
 - **Bookings**: paid bookings with guest contact (revealed only after payment), BidStay fee and payout.
@@ -33,4 +33,4 @@ Start the backend with the `dev` profile first. Sign in with one of the seeded a
 Login picks a user ID and sends `X-User-Id`. The backend already enforces roles and hotel ownership on every route (`AccessService`), but anyone can claim any ID. Replace `src/lib/session.tsx` + the login page with phone + OTP and a JWT when the backend issues tokens.
 
 ## Real WhatsApp
-The chat is stored in `partner_messages`. To go live, add a WhatsApp Business Cloud API call where the backend writes BOT messages (`PartnerChatService.bot`) and point the inbound webhook at `PartnerService.handleChatText`. The portal needs no change.
+Configure the Meta WhatsApp Cloud API and approved templates in the backend environment. Hoteliers can reply in WhatsApp using the linked request reference, such as `COUNTER 1500 42/1`. See the [pilot runbook](../docs/pilot.md).

@@ -30,7 +30,8 @@ export default function HotelShell() {
 
   const hotelsQ = useQuery({ queryKey: ['partnerHotels'], queryFn: () => api.get<MyHotel[]>('/api/v1/partner/hotels') });
   const hotels = hotelsQ.data ?? [];
-  const hotel = hotels.find((h) => h.id === picked) ?? hotels[0];
+  const linkedHotel = loc.pathname === '/hotel/bookings' ? Number(new URLSearchParams(loc.search).get('hotel')) : 0;
+  const hotel = hotels.find((h) => h.id === linkedHotel) ?? hotels.find((h) => h.id === picked) ?? hotels[0];
 
   const offersQ = useQuery({
     queryKey: ['offers', hotel?.id],

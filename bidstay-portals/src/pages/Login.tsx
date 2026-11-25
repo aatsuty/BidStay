@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, BedDouble, ShieldCheck } from 'lucide-react';
 import { make, useApi } from '../lib/api';
@@ -18,6 +18,8 @@ export default function Login() {
   const session = useSession();
   const api = useApi();
   const nav = useNavigate();
+  const link: unknown = useLocation().state?.bookingLink;
+  const hotelHome = typeof link === 'string' && /^\/hotel\/bookings\?hotel=\d+&booking=\d+$/.test(link) ? link : '/hotel';
   const qc = useQueryClient();
   const [invite] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('invite') || undefined);
   const [mode, setMode] = useState<'staff' | 'admin'>('staff');
@@ -50,7 +52,7 @@ export default function Login() {
         admin ? { phone, password, code } : { phone, code, name, invite });
       qc.clear();
       session.signInVerified(authenticated.guest.id, authenticated.token);
-      nav(admin ? '/admin' : '/hotel', { replace: true });
+      nav(admin ? '/admin' : hotelHome, { replace: true });
     } catch (failure) {
       setError(failure);
     } finally {
@@ -65,7 +67,7 @@ export default function Login() {
       const me = await make(url, userId).get<Me>('/api/v1/me');
       qc.clear();
       session.signIn(userId, url);
-      nav(me.role === 'ADMIN' ? '/admin' : '/hotel', { replace: true });
+      nav(me.role === 'ADMIN' ? '/admin' : hotelHome, { replace: true });
     } catch (failure) {
       setError(failure);
     } finally {
