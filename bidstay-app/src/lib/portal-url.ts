@@ -29,7 +29,7 @@ export function portalOrigin(browserHost?: string) {
   if (!__DEV__) return undefined;
   const hostUri = Constants.expoConfig?.hostUri;
   const host = browserHost ?? hostUri?.match(/^(\[[\da-f:]+\]|[a-z\d.-]+)(?::\d+)?$/i)?.[1];
-  return host && localHost(host) ? `http://${host}:5173` : undefined;
+  return host && localHost(host) ? `http://${host}:8080` : undefined;
 }
 
 export function portalPath(pathname: string, params: Record<string, string | string[] | undefined>) {

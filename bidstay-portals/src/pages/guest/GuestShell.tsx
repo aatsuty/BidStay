@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMe } from '../../App';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
+import { demoMode } from '../../lib/runtime';
 import { useSession } from '../../lib/session';
 import './guest.css';
 
@@ -139,7 +140,7 @@ function GuestSignIn({ close }: { close: () => void }) {
         <button className="guest-cta" disabled={busy}>{busy ? 'Please wait…' : sent ? 'Verify and sign in' : 'Send code'}</button>
       </form>
       {sent && <button className="guest-quiet" onClick={() => { setSent(false); setCode(''); setError(undefined); }}>Change number or send again</button>}
-      {import.meta.env.DEV && <button className="guest-quiet" disabled={busy} onClick={() => { void demo(); }}>Continue with demo guest</button>}
+      {demoMode && <button className="guest-quiet" disabled={busy} onClick={() => { void demo(); }}>Continue with demo guest</button>}
     </dialog>
   );
 }

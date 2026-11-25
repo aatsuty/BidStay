@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, BedDouble, ShieldCheck } from 'lucide-react';
 import { make, useApi } from '../lib/api';
+import { demoMode } from '../lib/runtime';
 import { useSession } from '../lib/session';
 import type { Me } from '../lib/types';
 import { ErrorBox } from '../components/ui';
@@ -107,7 +108,7 @@ export default function Login() {
           {sent && <button className="btn ghost sm" style={{ marginTop: 10 }} disabled={busy} onClick={() => { setSent(false); setCode(''); }}>Change number or resend</button>}
           {mode === 'admin' && <p className="portal-security"><ShieldCheck size={15} /> Your administrator account requires two-step verification.</p>}
         </div>
-        {import.meta.env.DEV && !invite && <details className="portal-demo">
+        {demoMode && !invite && <details className="portal-demo">
           <summary>Local demo accounts</summary>
           {ACCOUNTS.map((account) => <button key={account.id} className="acct" disabled={busy} onClick={() => { void enter(account.id); }}>
             <div className="row spread"><b>{account.title}</b><span className="badge info">{account.tag}</span></div>

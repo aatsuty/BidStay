@@ -4,12 +4,12 @@ Spring Boot and PostgreSQL serve one React portal for guests, hotel partners, an
 
 ## Run locally
 
-1. Start PostgreSQL and run the backend with `mvn spring-boot:run -Dspring-boot.run.profiles=dev` in `bidstay-backend`. Flyway upgrades an existing seeded development database in place.
-2. Run `npm ci` followed by `npm run dev -- --host 0.0.0.0 --port 5173 --strictPort` in `bidstay-portals`. Open the printed web URL. **Find a stay** is the guest experience at `/`. **Partner portal** opens staff or admin sign-in with local demo accounts available in development.
-3. In a separate terminal, run `npm ci` and `npx expo start --go --lan` in `bidstay-app`. Use Expo Go for SDK 58 on the same Wi-Fi. The phone opens the Vite portal and Vite forwards API requests to Spring Boot. [Mobile setup and download error troubleshooting](../bidstay-app/README.md#android-says-it-failed-to-download-the-remote-update)
+1. Start PostgreSQL and run `mvn spring-boot:run -Dspring-boot.run.profiles=dev` in `bidstay-backend`. Maven builds the shared React portal and Flyway upgrades the development database in place.
+2. Open [BidStay](http://localhost:8080/). Choose **Hourly stays** on the homepage or open **Partner portal** for hotelier and admin sign-in.
+3. In a separate terminal, run `npm ci` and `npx expo start --go --lan --clear` in `bidstay-app`. Expo Go for SDK 58 on the same Wi-Fi opens the same portal on port 8080. [Mobile setup](../bidstay-app/README.md)
 4. To test bidding, choose an upcoming Delhi stay, select Hotel Sunrise Paharganj, and send a ₹1,100 bid as the demo guest. Use the demo owner account to counter at ₹1,500. In **Profile & documents → Stay policy**, set check-in, check-out and arrival requirements. Return to the guest offer, review the terms and complete demo checkout. Open **My trips** to verify the booking and demo receipt.
 
-For a release, serve the portal and API under the same HTTPS origin and set `EXPO_PUBLIC_PORTAL_URL` for the app build. In development, `VITE_API_PROXY_TARGET` overrides the default backend target of `http://127.0.0.1:8080`. The development server uses OpenStreetMap tiles. Configure a production tile service with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` before routing pilot map traffic. The search shows approximate hotel locations. The hero photograph illustrates the stay concept.
+For a release, `mvn package` bundles the portal in the Spring Boot JAR. Serve it through HTTPS and set `EXPO_PUBLIC_PORTAL_URL` for the app build. Developers can use `npm run dev` in `bidstay-portals` for hot reload. `VITE_API_PROXY_TARGET` overrides the default backend target of `http://127.0.0.1:8080`. Configure a production map tile service with `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION`. The search shows approximate hotel locations. The hero photograph illustrates the stay concept.
 
 ## Enable providers
 

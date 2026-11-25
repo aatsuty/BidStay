@@ -21,5 +21,5 @@ const styles = StyleSheet.create({
 });
 
 export const missingPortal = __DEV__
-  ? 'Run bidstay-portals on port 5173 on the same Wi-Fi, or set EXPO_PUBLIC_PORTAL_URL to your portal origin.'
+  ? 'Start BidStay on port 8080 on the same Wi-Fi, or set EXPO_PUBLIC_PORTAL_URL to your portal origin.'
   : 'This build needs a configured HTTPS portal address.';

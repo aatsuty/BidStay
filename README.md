@@ -78,21 +78,21 @@ More are in docs/screenshots.
 
 Quick start
 
-Needs Docker, Java 21, Maven and Node 20 or newer. See the [pilot setup](docs/pilot.md) for configuration.
+Needs Docker, Java 21, Maven and Node 22.13 or newer. See the [pilot setup](docs/pilot.md) for configuration.
 
 ```bash
-# 1. Backend (database + API, with demo data)
+# Start BidStay from the repository root
 cd bidstay-backend
 docker compose up -d
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
+```
 
-# 2. Shared guest, hotel partner and admin portal at http://localhost:5173
-cd bidstay-portals
-npm ci && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort
+Open [BidStay](http://localhost:8080/) and choose **Hourly stays** on the homepage. Maven builds the portal and Spring Boot serves it with the API.
 
-# 3. Android and iOS app in a third terminal
+```bash
+# Optional second terminal for Android and iOS
 cd bidstay-app
-npm ci && npx expo start --go --lan
+npm ci && npx expo start --go --lan --clear
 ```
 
 [Expo Go and Wi-Fi setup](bidstay-app/README.md)

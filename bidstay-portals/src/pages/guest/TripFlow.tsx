@@ -8,6 +8,7 @@ import { countdown, fmtDate, useNow } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import { useGuest } from './GuestShell';
 import { deviceRequest } from '../../lib/portal-device';
+import { demoMode } from '../../lib/runtime';
 import HotelDetails from './HotelDetails';
 import ReviewForm from './ReviewForm';
 import WhatsAppPreference from '../WhatsAppPreference';
@@ -250,8 +251,8 @@ export function Checkout() {
         {left && options.data?.razorpay && (paymentLink.data
           ? <a href={paymentLink.data.url} target="_blank" rel="noreferrer" className="guest-cta">Open secure checkout <ArrowRight size={16} /></a>
           : <button className="guest-cta" disabled={paymentLink.isPending} onClick={() => paymentLink.mutate()}>{paymentLink.isPending ? 'Preparing checkout…' : 'Pay with Razorpay'}</button>)}
-        {left && !options.data?.razorpay && import.meta.env.DEV && <button className="guest-cta" disabled={pay.isPending} onClick={() => pay.mutate()}>{pay.isPending ? 'Confirming…' : 'Complete demo payment'}</button>}
-        {left && !import.meta.env.DEV && options.data && !options.data.razorpay && <p>Online payment is currently unavailable.</p>}
+        {left && !options.data?.razorpay && demoMode && <button className="guest-cta" disabled={pay.isPending} onClick={() => pay.mutate()}>{pay.isPending ? 'Confirming…' : 'Complete demo payment'}</button>}
+        {left && !demoMode && options.data && !options.data.razorpay && <p>Online payment is currently unavailable.</p>}
         {booking.receipt && <section className="guest-payment-receipt" aria-label="Payment receipt">
           <h3>{booking.receipt.demo ? 'Demo payment receipt' : 'Payment receipt'}</h3>
           <dl>

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { demoMode } from './runtime';
 
 interface SessionState { userId: number | null; baseUrl: string; token?: string }
 interface Ctx extends SessionState {
@@ -12,7 +13,7 @@ const KEY = 'bidstay.portal.session.v1';
 const DEFAULT_URL = import.meta.env.DEV ? '' : import.meta.env.VITE_API_URL ?? '';
 
 function load(): SessionState {
-  if (!import.meta.env.DEV) return { userId: null, baseUrl: DEFAULT_URL };
+  if (!demoMode) return { userId: null, baseUrl: DEFAULT_URL };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {

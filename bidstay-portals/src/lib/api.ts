@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSession } from './session';
+import { demoMode } from './runtime';
 
 export class ApiError extends Error {
   status: number;
@@ -16,7 +17,7 @@ export function make(baseUrl: string, userId: number | null, token?: string) {
     try {
       res = await fetch(baseUrl.replace(/\/$/, '') + path, {
         method,
-        headers: { ...(upload ? {} : { 'Content-Type': 'application/json' }), Accept: binary ? '*/*' : 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : import.meta.env.DEV && userId ? { 'X-User-Id': String(userId) } : {}) },
+        headers: { ...(upload ? {} : { 'Content-Type': 'application/json' }), Accept: binary ? '*/*' : 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : demoMode && userId ? { 'X-User-Id': String(userId) } : {}) },
         body: upload ? body : body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {

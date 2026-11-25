@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, IndianRupee, Images, List, LocateFixed, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, Star, Users } from 'lucide-react';
+import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, Clock3, IndianRupee, Images, List, LocateFixed, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, Star, Users } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { todayISO } from '../../lib/format';
@@ -156,6 +156,8 @@ export default function Search() {
   }
 
   const searchDirty = Object.keys(criteria).some((key) => criteria[key as keyof SearchFields] !== form[key as keyof SearchFields]);
+  const hourlyUrl = '/hourly?' + new URLSearchParams({ city: form.city, date: form.checkIn,
+    category: form.category, guests: String(form.guests), rooms: String(form.rooms) });
 
   return (
     <main className="guest-container guest-search">
@@ -166,13 +168,12 @@ export default function Search() {
           <p>Send one bid to the hotels you choose. Compare replies and book the stay that works for you.</p>
           <div className="guest-stay-links">
             <a href="#find-hotels" className="guest-hero-link">Find a stay <ArrowDown size={15} /></a>
-            <Link to="/hourly" className="guest-hero-link">Hourly stays <ArrowRight size={15} /></Link>
+            <Link to={hourlyUrl} className="guest-cta"><Clock3 size={17} /> Hourly stays</Link>
           </div>
         </div>
       </section>
       <form onSubmit={runSearch} className="guest-search-form" id="find-hotels">
-        <StayTypeNav hourlyUrl={'/hourly?' + new URLSearchParams({ city: form.city, date: form.checkIn,
-          category: form.category, guests: String(form.guests), rooms: String(form.rooms) })} />
+        <StayTypeNav hourlyUrl={hourlyUrl} />
         <label><span><MapPin size={16} /> Destination</span><input required maxLength={80} value={form.city} onChange={(event) => change('city', event.target.value)} /></label>
         <label><span><CalendarDays size={16} /> Check-in</span><input type="date" required min={todayISO()} value={form.checkIn} onChange={(event) => {
           const checkIn = event.target.value;
