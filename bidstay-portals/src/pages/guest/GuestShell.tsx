@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
-import { BedDouble, Bell, Building2, CalendarDays, ChevronRight, CircleUserRound, LogOut, X } from 'lucide-react';
+import { BedDouble, Bell, Building2, CalendarDays, ChevronRight, CircleUserRound, LogOut, Search, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useMe } from '../../App';
 import { ErrorBox } from '../../components/ui';
-import { useApi } from '../../lib/api';
+import { make, useApi } from '../../lib/api';
 import { demoMode } from '../../lib/runtime';
 import { useSession } from '../../lib/session';
 import './guest.css';
@@ -42,31 +42,37 @@ export default function GuestShell() {
     }
   }
 
+  const accountButton = (className?: string) => signedIn
+    ? <button className={className} onClick={() => { void logout(); }}><LogOut size={18} /> Sign out</button>
+    : <button className={className} onClick={() => setShowSignIn(true)}><CircleUserRound size={18} /> Sign in</button>;
+  const guestLinks = <>
+    <NavLink to="/" end className={({ isActive }) => isActive || pathname === '/hourly' ? 'active' : ''}>
+      <Search size={17} /> <span>Find a stay</span>
+    </NavLink>
+    <NavLink to="/trips"><CalendarDays size={17} /> <span>My trips</span></NavLink>
+    <NavLink to="/alerts"><Bell size={17} /> <span>Alerts</span>
+      {unread > 0 && <span className="guest-alert-badge" aria-label={`${unread} unread alerts`}>{unread > 99 ? '99+' : unread}</span>}
+    </NavLink>
+  </>;
+
   return (
     <div className="guest">
       <header className="guest-nav">
         <div className="guest-container guest-nav-inner">
           <Link to="/" className="guest-wordmark"><span><BedDouble size={21} /></span>Bid<strong>Stay</strong></Link>
-          <nav aria-label="Guest navigation">
-            <NavLink to="/" end>Find a stay</NavLink>
-            <NavLink to="/trips"><CalendarDays size={16} /> My trips</NavLink>
-            <NavLink to="/alerts"><Bell size={16} /> Alerts {unread > 0 && <span className="guest-alert-badge" aria-label={`${unread} unread alerts`}>{unread > 99 ? '99+' : unread}</span>}</NavLink>
-          </nav>
+          <nav className="guest-desktop-nav" aria-label="Guest navigation">{guestLinks}</nav>
           <div className="guest-nav-actions">
             <Link to={me.data?.role === 'ADMIN' ? '/admin' : me.data?.role === 'HOTEL_STAFF' ? '/hotel' : '/login'} className="guest-partner">
               <Building2 size={16} /> Partner portal
             </Link>
-            {signedIn ? (
-              <button className="guest-quiet" onClick={() => { void logout(); }}><LogOut size={16} /> Sign out</button>
-            ) : (
-              <button className="guest-quiet" onClick={() => setShowSignIn(true)}><CircleUserRound size={17} /> Sign in</button>
-            )}
+            {accountButton('guest-quiet')}
           </div>
         </div>
       </header>
       <div className="guest-container"><ErrorBox error={logoutError} /></div>
       <Outlet context={{ signedIn, checkingSignIn, openSignIn: () => setShowSignIn(true) } satisfies GuestContext} />
       <footer className="guest-footer"><div className="guest-container"><Link to="/" className="guest-wordmark">Bid<strong>Stay</strong></Link><Link to="/login">Hotel partner &amp; admin portal <ChevronRight size={14} /></Link></div></footer>
+      <nav className="guest-mobile-nav" aria-label="Guest navigation">{guestLinks}{accountButton()}</nav>
       {showSignIn && <GuestSignIn close={() => {
         setShowSignIn(false);
         if (params.has('signIn')) {
@@ -115,7 +121,6 @@ function GuestSignIn({ close }: { close: () => void }) {
     setBusy(true);
     setError(undefined);
     try {
-      const { make } = await import('../../lib/api');
       await make(session.baseUrl, 1).get('/api/v1/me');
       session.signIn(1, session.baseUrl);
       close();

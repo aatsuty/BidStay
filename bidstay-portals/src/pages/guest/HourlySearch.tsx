@@ -9,6 +9,7 @@ import { useSession } from '../../lib/session';
 import DestinationField from './DestinationField';
 import { useGuest } from './GuestShell';
 import HotelDetails from './HotelDetails';
+import StayHeroImage from './StayHeroImage';
 import StayTypeNav from './StayTypeNav';
 import { addDays, destinationLabel, mediaUrl, rupees } from './models';
 import { useDirectCheckout } from './useDirectCheckout';
@@ -31,6 +32,7 @@ export default function HourlySearch() {
   }));
   const { city, area } = destination;
   const [criteria, setCriteria] = useState<Criteria>();
+  const [mapOpen, setMapOpen] = useState(false);
   const [hours, setHours] = useState(() => params.get('hours') === '6' ? 6 : 3);
   const [details, setDetails] = useState<Listing>();
   const location = useMapSearch();
@@ -90,11 +92,16 @@ export default function HourlySearch() {
   const overnight = criteria
     ? { city, area, checkIn: criteria.date, category: criteria.category, rooms: String(criteria.rooms), guests: String(criteria.guests) }
     : { city, area, checkIn: date, category, rooms: params.get('rooms') ?? '', guests: params.get('guests') ?? '' };
-  return <main className="guest-container guest-trip">
-    <StayTypeNav overnightUrl={'/?' + new URLSearchParams(overnight)} />
-    <h1>Hourly stays</h1>
-    <p className="guest-trip-description">Book a room for 3 or 6 hours at participating hotels.</p>
+  return <main className="guest-container guest-search guest-hourly">
+    <section className="guest-hero guest-hero-hourly" aria-labelledby="hourly-title">
+      <StayHeroImage />
+      <div className="guest-hero-content">
+        <h1 id="hourly-title">Hourly stays</h1>
+        <p>Choose your arrival time and book a 3- or 6-hour stay.</p>
+      </div>
+    </section>
     <form className="guest-checkout guest-hourly-search" onSubmit={search}>
+      <StayTypeNav overnightUrl={'/?' + new URLSearchParams(overnight)} />
       <DestinationField city={destinationLabel(city, area)} onChange={(city) => setDestination({ city, area: '' })}
         onChoose={({ city, area }) => setDestination({ city, area })} hourly />
       <label className="field">Date<input className="input" name="date" type="date"
@@ -108,8 +115,10 @@ export default function HourlySearch() {
       <label className="field">Room type<select className="input" name="category" defaultValue={category}>
         <option value="STANDARD">Standard</option><option value="DELUXE">Deluxe</option><option value="SUITE">Suite</option>
       </select></label>
-      <label className="field">Rooms<input className="input" name="rooms" type="number" defaultValue={initialCount(params.get('rooms'), 10, 1)} min={1} max={10} required /></label>
-      <label className="field">Guests<input className="input" name="guests" type="number" defaultValue={initialCount(params.get('guests'), 40, 2)} min={1} max={40} required /></label>
+      <div className="guest-hourly-party">
+        <label className="field">Rooms<input className="input" name="rooms" type="number" defaultValue={initialCount(params.get('rooms'), 10, 1)} min={1} max={10} required /></label>
+        <label className="field">Guests<input className="input" name="guests" type="number" defaultValue={initialCount(params.get('guests'), 40, 2)} min={1} max={40} required /></label>
+      </div>
       <button className="guest-cta" disabled={checkout.isPending}>Find hourly stays <ArrowRight size={16} /></button>
     </form>
     <ErrorBox error={results.error ?? checkout.error} />
@@ -119,19 +128,21 @@ export default function HourlySearch() {
         <button type="button" className="guest-quiet" aria-pressed={!!location.nearby} disabled={location.locating} onClick={location.toggleNearby}>
           <LocateFixed size={15} /> {location.locating ? 'Finding location…' : location.nearby ? 'Within 5 km' : 'Near me'}
         </button>
+        {(mapHotels.length > 0 || location.bounds) && <button type="button" className="guest-quiet" aria-pressed={mapOpen}
+          onClick={() => setMapOpen(!mapOpen)}>{mapOpen ? 'Hide map' : 'Show map'}</button>}
         {location.bounds && <button type="button" className="guest-quiet" onClick={() => location.changeBounds()}>Clear map area</button>}
       </div>
       {location.error && <p role="status" className="guest-price-hint">{location.error}</p>}
-      {(mapHotels.length > 0 || location.bounds) && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}>
+      {mapOpen && (mapHotels.length > 0 || location.bounds) && <Suspense fallback={<div className="guest-map" role="status">Loading map…</div>}>
         <HotelMap hotels={mapHotels} toggle={(id) => setDetails(hotels.find((hotel) => hotel.hotelId === id))}
           appliedBounds={location.bounds} onSearchArea={location.changeBounds} />
       </Suspense>}
       {results.isFetching && !results.data && <p role="status">Checking available rooms…</p>}
       {results.isSuccess && hotels.length === 0 && <div className="guest-empty"><BedDouble size={23} />
         <h3>No hotels available for this slot</h3><p>Try another time, date, or room type.</p></div>}
-      <div className="guest-trip-list">{hotels.map((hotel) => <article className="guest-offer-row" key={hotel.roomTypeId}>
+      <div className="guest-trip-list">{hotels.map((hotel) => <article className="guest-offer-row guest-hourly-result" key={hotel.roomTypeId}>
         {hotel.photo ? <img className="guest-hourly-photo" src={mediaUrl(baseUrl, hotel.photo)} alt="" loading="lazy" />
-          : <span className="guest-hotel-icon"><BedDouble size={20} /></span>}
+          : <span className="guest-hourly-photo guest-hourly-placeholder"><BedDouble size={26} /></span>}
         <div><h2>{hotel.hotelName}</h2><p><MapPin size={14} /> {hotel.city ? destinationLabel(hotel.city, hotel.area) : hotel.area} · {hotel.roomName}</p></div>
         <div className="guest-offer-amount"><strong>{rupees.format(hotel.ratePerRoom * criteria.rooms)}</strong>
           <small>{criteria.rooms === 1 ? `1 room · ${criteria.hours} hours` : `${rupees.format(hotel.ratePerRoom)} per room · ${criteria.hours} hours`}</small>

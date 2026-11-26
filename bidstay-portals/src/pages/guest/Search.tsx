@@ -1,7 +1,7 @@
-import { lazy, Suspense, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, Clock3, IndianRupee, Images, List, LocateFixed, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, Star, Users } from 'lucide-react';
+import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, Clock3, IndianRupee, Images, List, LocateFixed, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, SlidersHorizontal, Star, Users } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { todayISO } from '../../lib/format';
@@ -9,6 +9,7 @@ import { useSession } from '../../lib/session';
 import DestinationField from './DestinationField';
 import { useMapSearch } from './useMapSearch';
 import HotelDetails from './HotelDetails';
+import StayHeroImage from './StayHeroImage';
 import StayTypeNav from './StayTypeNav';
 import { useGuest } from './GuestShell';
 import { useDirectCheckout } from './useDirectCheckout';
@@ -51,7 +52,9 @@ export default function Search() {
   const [minimumStars, setMinimumStars] = useState('');
   const [maximumRate, setMaximumRate] = useState('');
   const location = useMapSearch(() => setSelected(new Set()));
-  const [panel, setPanel] = useState<'map' | 'list'>('map');
+  const [panel, setPanel] = useState<'map' | 'list'>('list');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const bidPanel = useRef<HTMLElement>(null);
   const [price, setPrice] = useState(() => {
     const budget = Number(params.get('budget'));
     return budget >= 1 && budget <= 100_000 ? String(budget) : '1500';
@@ -142,9 +145,10 @@ export default function Search() {
   return (
     <main className="guest-container guest-search">
       <section className="guest-hero" aria-labelledby="search-title">
+        <StayHeroImage />
         <div className="guest-hero-content">
           <h1 id="search-title">Your stay.<br /><em>Your price.</em></h1>
-          <p>Send one bid to the hotels you choose. Compare replies and book the stay that works for you.</p>
+          <p>Book at the listed rate or send one budget to the hotels you choose.</p>
           <div className="guest-stay-links">
             <a href="#find-hotels" className="guest-hero-link">Find a stay <ArrowDown size={15} /></a>
             <Link to={hourlyUrl} className="guest-cta"><Clock3 size={17} /> Hourly stays</Link>
@@ -175,30 +179,34 @@ export default function Search() {
                 {allSelected ? 'Clear selection' : visible.length > MAX_SELECTED ? `Select first ${MAX_SELECTED}` : 'Select all'}
               </button>}
               {canShowMap && <div className="guest-switch" aria-label="Hotel view">
-                <button aria-pressed={panel === 'map'} onClick={() => setPanel('map')}><Map size={16} /> Map</button>
                 <button aria-pressed={panel === 'list'} onClick={() => setPanel('list')}><List size={16} /> List</button>
+                <button aria-pressed={panel === 'map'} onClick={() => setPanel('map')}><Map size={16} /> Map</button>
               </div>}
             </div>
           </div>
           <div className="guest-filters">
-            <label><span className="guest-visually-hidden">Neighbourhood</span><select value={areas.find((option) => option.toLowerCase() === area.toLowerCase()) ?? area} onChange={(event) => {
-              const area = event.target.value;
-              setForm((previous) => ({ ...previous, area }));
-              setCriteria((previous) => ({ ...previous, area }));
-              location.changeBounds();
-            }}><option value="">All neighbourhoods</option>{area && !areas.some((option) => option.toLowerCase() === area.toLowerCase()) && <option value={area}>{area}</option>}{areas.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></label>
-            <label><span className="guest-visually-hidden">Room type</span><select value={form.category} onChange={(event) => {
-              const category = event.target.value as SearchFields['category'];
-              change('category', category);
-              setCriteria((previous) => ({ ...previous, category }));
-              setSelected(new Set());
-            }}>{ROOM_OPTIONS.map((option) => <option key={option} value={option}>{option[0] + option.slice(1).toLowerCase()} room</option>)}</select><ChevronDown size={15} /></label>
-            <label><span className="guest-visually-hidden">Minimum star rating</span><select value={minimumStars} onChange={(event) => {
-              setMinimumStars(event.target.value); setSelected(new Set());
-            }}><option value="">Any star rating</option>{[2, 3, 4, 5].map((stars) => <option key={stars} value={stars}>{stars} stars and up</option>)}</select><ChevronDown size={15} /></label>
-            <label><span className="guest-visually-hidden">Maximum listed nightly rate</span><select value={maximumRate} onChange={(event) => {
-              setMaximumRate(event.target.value); setSelected(new Set());
-            }}><option value="">Any listed rate</option>{[1500, 2500, 5000, 10000].map((rate) => <option key={rate} value={rate}>Up to {rupees.format(rate)} / night</option>)}</select><ChevronDown size={15} /></label>
+            <button className="guest-quiet guest-filter-toggle" type="button" aria-expanded={filtersExpanded}
+              aria-controls="guest-result-filters" onClick={() => setFiltersExpanded(!filtersExpanded)}><SlidersHorizontal size={15} /> Filters</button>
+            <div id="guest-result-filters" className={'guest-filter-fields' + (filtersExpanded ? ' expanded' : '')}>
+              <label><span className="guest-visually-hidden">Neighbourhood</span><select value={areas.find((option) => option.toLowerCase() === area.toLowerCase()) ?? area} onChange={(event) => {
+                const area = event.target.value;
+                setForm((previous) => ({ ...previous, area }));
+                setCriteria((previous) => ({ ...previous, area }));
+                location.changeBounds();
+              }}><option value="">All neighbourhoods</option>{area && !areas.some((option) => option.toLowerCase() === area.toLowerCase()) && <option value={area}>{area}</option>}{areas.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></label>
+              <label><span className="guest-visually-hidden">Room type</span><select value={form.category} onChange={(event) => {
+                const category = event.target.value as SearchFields['category'];
+                change('category', category);
+                setCriteria((previous) => ({ ...previous, category }));
+                setSelected(new Set());
+              }}>{ROOM_OPTIONS.map((option) => <option key={option} value={option}>{option[0] + option.slice(1).toLowerCase()} room</option>)}</select><ChevronDown size={15} /></label>
+              <label><span className="guest-visually-hidden">Minimum star rating</span><select value={minimumStars} onChange={(event) => {
+                setMinimumStars(event.target.value); setSelected(new Set());
+              }}><option value="">Any star rating</option>{[2, 3, 4, 5].map((stars) => <option key={stars} value={stars}>{stars} stars and up</option>)}</select><ChevronDown size={15} /></label>
+              <label><span className="guest-visually-hidden">Maximum listed nightly rate</span><select value={maximumRate} onChange={(event) => {
+                setMaximumRate(event.target.value); setSelected(new Set());
+              }}><option value="">Any listed rate</option>{[1500, 2500, 5000, 10000].map((rate) => <option key={rate} value={rate}>Up to {rupees.format(rate)} / night</option>)}</select><ChevronDown size={15} /></label>
+            </div>
             <button type="button" className="guest-quiet" aria-pressed={!!location.nearby} disabled={location.locating} onClick={location.toggleNearby}>
               <LocateFixed size={15} /> {location.locating ? 'Finding location…' : location.nearby ? 'Within 5 km' : 'Near me'}
             </button>
@@ -216,8 +224,7 @@ export default function Search() {
           </div>
           {hotelQuery.hasNextPage && <button className="guest-quiet guest-more" disabled={hotelQuery.isFetchingNextPage} onClick={() => { void hotelQuery.fetchNextPage(); }}>Load more hotels</button>}
         </div>
-        <aside className="guest-price" aria-labelledby="price-title">
-          <div className="guest-price-icon"><IndianRupee size={22} /></div>
+        <aside className="guest-price" tabIndex={-1} ref={bidPanel} aria-labelledby="price-title">
           <h2 id="price-title">Name your price</h2>
           <p>Set what you'd pay for one room, per night.</p>
           <div className="guest-price-entry">
@@ -242,6 +249,14 @@ export default function Search() {
           {save.isSuccess && <p className="guest-save-success" role="status">Search saved. <Link to="/alerts">View alerts</Link></p>}
           <p className="guest-price-note"><ShieldCheck size={17} /> You pay only if you choose an offer and complete checkout.</p>
         </aside>
+        {targets.length > 0 && <div className="guest-mobile-bid">
+          <div><strong>{targets.length} {targets.length === 1 ? 'hotel' : 'hotels'} selected</strong>
+            <small>{rupees.format(Math.max(0, offer || 0))} per room / night</small></div>
+          <button className="guest-cta" type="button" onClick={() => {
+            bidPanel.current?.focus({ preventScroll: true });
+            bidPanel.current?.scrollIntoView({ block: 'start' });
+          }}>Review bid <ArrowRight size={16} /></button>
+        </div>}
       </section>}
       {details && <HotelDetails id={details.id} name={details.name}
         selection={{ selected: selected.has(details.id), toggle: () => toggle(details.id) }}
@@ -268,7 +283,7 @@ function HotelRow({ hotel, selected, toggle, openDetails, baseUrl }: {
 }) {
   const cover = hotel.hotelPhoto ?? hotel.roomPhoto;
   return (
-    <article className={'guest-hotel' + (selected ? ' selected' : '')}>
+    <article className={'guest-hotel' + (selected ? ' selected' : '') + (cover ? '' : ' no-photo')}>
       <button type="button" className="guest-hotel-picture" onClick={openDetails} aria-label={`View photos of ${hotel.name}`}>
         {cover ? <img src={mediaUrl(baseUrl, cover)} alt="" loading="lazy" /> : <BedDouble size={23} />}
       </button>
@@ -278,11 +293,12 @@ function HotelRow({ hotel, selected, toggle, openDetails, baseUrl }: {
           {hotel.starRating != null && hotel.starRating > 0 && <span><Star size={12} /> {hotel.starRating}-star</span>}
           {hotel.verified && <span><ShieldCheck size={13} /> Verified</span>}
         </span>
-        {hotel.roomPhoto && <button className="guest-room-link" type="button" onClick={openDetails}><Images size={13} /> See room photos</button>}
+        <button className="guest-room-link" type="button" onClick={openDetails}><Images size={14} /> See rooms &amp; stay policy</button>
       </div>
-      <span className="guest-hotel-rate"><strong>{rupees.format(hotel.listedPrice)}</strong><small>per night</small></span>
+      <span className="guest-hotel-rate"><strong>{rupees.format(hotel.listedPrice)}</strong><small>per room / night</small></span>
       <button className="guest-select-icon" type="button" aria-label={`${selected ? 'Remove' : 'Select'} ${hotel.name}`} aria-pressed={selected} onClick={toggle}>
         {selected ? <Check size={16} /> : <Plus size={16} />}
+        <span>{selected ? 'Added to bid' : 'Add to bid'}</span>
       </button>
     </article>
   );

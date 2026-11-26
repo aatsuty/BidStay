@@ -1,30 +1,21 @@
 import { useState } from 'react';
-import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Building2, CalendarDays, ChartNoAxesColumnIncreasing, ClipboardCheck, Files, Images, MessagesSquare, Plus, SlidersHorizontal } from 'lucide-react';
 import { useApi } from '../../lib/api';
-import { useSession } from '../../lib/session';
 import type { HotelOffer, MyHotel } from '../../lib/types';
-import { HotelStatusBadge, Loading } from '../../components/ui';
+import { ErrorBox, HotelStatusBadge, Loading } from '../../components/ui';
+import PortalLayout, { type PortalLink } from '../../components/PortalLayout';
 import { useMe } from '../../App';
 import { HotelContext } from './HotelContext';
-import Register from './Register';
 
 const KEY = 'bidstay.portal.hotel';
+const register: PortalLink = { to: '/hotel/register', label: 'Register another hotel', icon: Plus };
 
 export default function HotelShell() {
   const api = useApi();
   const nav = useNavigate();
   const loc = useLocation();
-  const { token, signOut } = useSession();
-  const qc = useQueryClient();
-  async function leave() {
-    try { if (token) await api.post('/api/v1/auth/logout'); }
-    finally {
-      qc.clear();
-      signOut();
-      nav('/login');
-    }
-  }
   const me = useMe();
   const [picked, setPicked] = useState<number | null>(() => Number(localStorage.getItem(KEY)) || null);
 
@@ -41,53 +32,43 @@ export default function HotelShell() {
   });
 
   const select = (id: number) => { localStorage.setItem(KEY, String(id)); setPicked(id); };
-
   if (hotelsQ.isLoading) return <div className="main"><Loading /></div>;
-  if (!hotel) return loc.pathname.endsWith('/register')
-    ? <div className="main"><Register first onRegistered={select} /></div>
-    : <Navigate to="/hotel/register" replace />;
-  const pending = offersQ.data?.length ?? 0;
-  const links: [string, string, number?][] = [
-    ['requests', '💬 Requests', pending], ['rates', '₹ Rates & rules'], ['availability', '📅 Availability'],
-    ['bookings', '🧾 Bookings'], ['insights', '📈 Insights'], ['profile', '🏨 Profile & documents'], ['photos', '📷 Listing photos'],
-  ];
+  if (hotelsQ.error) return <div className="main"><ErrorBox error={hotelsQ.error} /><button className="btn ghost" onClick={() => void hotelsQ.refetch()}>Try again</button></div>;
+  if (!hotel && loc.pathname !== '/hotel/register' && loc.pathname !== '/hotel/account') {
+    return <Navigate to="/hotel/register" replace />;
+  }
 
-  return (
-    <HotelContext.Provider value={{ hotel, hotels, select }}>
-      <div className="shell">
-        <aside className="side">
-          <div className="logo">Bid<b>Stay</b></div>
-          <div className="portal-tag">Hotel partner</div>
-          {links.map(([to, label, n]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => 'nav' + (isActive ? ' active' : '')}>
-              {label}{n ? <span className="count">{n}</span> : null}
-            </NavLink>
-          ))}
-          <div className="foot">
-            <div className="small" style={{ marginBottom: 6, color: '#94a3b8' }}>Hotel</div>
-            <select className="input" aria-label="Active hotel" value={hotel.id} onChange={(e) => {
-              select(Number(e.target.value));
-              nav('/hotel/requests');
-            }}>
-              {hotels.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-            </select>
-            <div style={{ marginTop: 8 }}><NavLink to="register" className="small" style={{ color: '#a5b4fc' }}>+ Register another hotel</NavLink></div>
-            <div style={{ marginTop: 14 }} className="small">{me.data?.name}</div>
-            <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => { void leave().catch(() => undefined); }}>Sign out</button>
-          </div>
-        </aside>
-        <main className="main">
-          {hotel.status !== 'ACTIVE' && (
-            <div className="notice">
-              <HotelStatusBadge status={hotel.status} /> &nbsp;
-              {hotel.status === 'PENDING_VERIFICATION' && 'Our team is verifying your documents. You will start receiving bid requests once you are live.'}
-              {hotel.status === 'REJECTED' && `Not approved: ${hotel.rejectionReason ?? 'please check your documents'}. Fix it under Profile & documents and resubmit.`}
-              {hotel.status === 'SUSPENDED' && 'This hotel is suspended and cannot receive bids. Please contact BidStay support.'}
-            </div>
-          )}
-          <Outlet />
-        </main>
-      </div>
-    </HotelContext.Provider>
-  );
+  const requests: PortalLink = { to: '/hotel/requests', label: 'Requests', icon: MessagesSquare, count: offersQ.data?.length };
+  const bookings: PortalLink = { to: '/hotel/bookings', label: 'Bookings', icon: ClipboardCheck };
+  const availability: PortalLink = { to: '/hotel/availability', label: 'Availability', icon: CalendarDays };
+  const rates: PortalLink = { to: '/hotel/rates', label: 'Rates & rules', icon: SlidersHorizontal };
+  const insights: PortalLink = { to: '/hotel/insights', label: 'Insights', icon: ChartNoAxesColumnIncreasing };
+  const profile: PortalLink = { to: '/hotel/profile', label: 'Profile & documents', icon: Files };
+  const photos: PortalLink = { to: '/hotel/photos', label: 'Listing photos', icon: Images };
+  const registration = hotel ? register : { ...register, label: 'Register your hotel', shortLabel: 'Register' };
+  const links = hotel ? [requests, rates, availability, bookings, insights, profile, photos, registration] : [registration];
+  const tabs = hotel ? [requests, bookings, availability] : [registration];
+  const header = hotel && <label className="portal-property">
+    <Building2 size={21} aria-hidden="true" />
+    <span><span>Active hotel</span><select aria-label="Active hotel" value={hotel.id} onChange={(event) => {
+      select(Number(event.target.value));
+      nav('/hotel/requests');
+    }}>
+      {hotels.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+    </select></span>
+  </label>;
+
+  return <HotelContext.Provider value={{ hotel, hotels, select }}>
+    <PortalLayout role="Hotel partner" name={me.data?.name} links={links} tabs={tabs} accountPath="/hotel/account"
+      settings={hotel ? [rates, photos, profile, insights, registration] : [registration]} header={header}>
+      {hotel && hotel.status !== 'ACTIVE' && (
+        <div className="notice">
+          <HotelStatusBadge status={hotel.status} />{' '}
+          {hotel.status === 'PENDING_VERIFICATION' && 'Our team is verifying your documents. You will start receiving bid requests once you are live.'}
+          {hotel.status === 'REJECTED' && `Not approved: ${hotel.rejectionReason ?? 'please check your documents'}. Fix it under Profile & documents and resubmit.`}
+          {hotel.status === 'SUSPENDED' && 'This hotel is suspended and cannot receive bids. Please contact BidStay support.'}
+        </div>
+      )}
+    </PortalLayout>
+  </HotelContext.Provider>;
 }
