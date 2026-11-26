@@ -1,0 +1,15 @@
+**
+!bidstay-backend/
+!bidstay-backend/pom.xml
+!bidstay-backend/src/
+!bidstay-backend/src/**
+!bidstay-portals/
+!bidstay-portals/**
+**/.env
+**/.env.*
+**/.npmrc
+**/node_modules
+**/dist
+**/target
+**/*.tsbuildinfo
+**/*.log
