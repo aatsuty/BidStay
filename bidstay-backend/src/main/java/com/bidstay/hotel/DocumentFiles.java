@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
@@ -31,7 +32,10 @@ class DocumentFiles {
         this.bucket = bucket;
         this.localPath = Path.of(localPath);
         dev = environment.acceptsProfiles(Profiles.of("dev"));
-        s3 = bucket.isBlank() ? null : S3Client.builder().region(Region.of(region)).build();
+        s3 = bucket.isBlank() ? null : S3Client.builder()
+                .region(Region.of(region))
+                .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .build();
     }
 
     String upload(String key, String type, byte[] bytes) {
