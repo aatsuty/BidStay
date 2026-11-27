@@ -216,7 +216,7 @@ public class BookingService {
         updateBid(b, BidStatus.BOOKED);
 
         // Guest contact is revealed to the hotel only now, after payment.
-        String guest = users.findById(b.getGuestId()).map(u -> u.getName() + ", +91 " + u.getPhone()).orElse("guest");
+        String guest = users.findById(b.getGuestId()).map(u -> u.getPhone() == null ? u.getName() : u.getName() + ", +91 " + u.getPhone()).orElse("guest");
         var message = chat.bot(b.getHotelId(), PartnerMessage.Kind.SYSTEM,
                 "*Booking confirmed* #" + b.getId() + "\n" + stayDescription(b) + "\n"
                         + "Total " + Money.inr(b.getTotalAmount()) + " · BidStay commission " + Money.inr(b.getCommissionAmount())

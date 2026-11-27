@@ -4,7 +4,7 @@ export type HotelStatus = 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED' | 'SUSP
 export type RoomCategory = 'STANDARD' | 'DELUXE' | 'SUITE';
 export type DocType = 'GST' | 'LICENCE' | 'OWNER_ID' | 'PHOTOS';
 
-export interface Me { id: number; name: string; phone: string; role: Role }
+export interface Me { id: number; name: string; phone?: string; role: Role }
 export interface MyHotel { id: number; name: string; area: string; status: HotelStatus; rejectionReason?: string }
 
 export interface HotelOffer {
