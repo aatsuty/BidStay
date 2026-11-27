@@ -11,6 +11,7 @@ import { demoMode } from '../../lib/runtime';
 import HotelDetails from './HotelDetails';
 import ReviewForm from './ReviewForm';
 import TicketContactPreferences from './TicketContactPreferences';
+import GuestIdentityForm from './GuestIdentityForm';
 import { indiaDateTime, offerReady, refundLabel, rupees, type Bid, type Booking, type DirectTrip, type Offer } from './models';
 
 function TripPage({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
@@ -35,6 +36,33 @@ const statusLabel = (status: string) => ({
   EXPIRED: 'Expired', UNAVAILABLE: 'Unavailable', SELECTED: 'Selected', CONFIRMED: 'Confirmed',
 }[status] ?? status.toLowerCase().replaceAll('_', ' '));
 
+function GuestSignInEmail() {
+  const api = useApi();
+  const { cacheKey, token } = useSession();
+  const { emailEnabled } = useGuest();
+  const queryClient = useQueryClient();
+  const queryKey = ['guest-linked-email', cacheKey];
+  const linked = useQuery({
+    queryKey, enabled: !!token && emailEnabled,
+    queryFn: () => api.get<{ email?: string; canLink: boolean }>('/api/v1/auth/guest/email/link'),
+  });
+
+  if (!token || !emailEnabled) return null;
+  return <section className="guest-ticket-contacts">
+    <h3>Sign-in email</h3>
+    <ErrorBox error={linked.error} />
+    {linked.isPending && <p role="status">Loading sign-in email…</p>}
+    {linked.data?.email ? <p>{linked.data.email} is linked to this account.</p>
+      : linked.isSuccess && (linked.data.canLink ? <details>
+        <summary>Add an email to sign in</summary>
+        <p>Link an email here to keep using the same account and see your existing trips.</p>
+        <GuestIdentityForm action={{ kind: 'link', onLinked: () => {
+          void queryClient.invalidateQueries({ queryKey });
+        } }} />
+      </details> : <p>Sign out, then sign in with your mobile number to link an email.</p>)}
+  </section>;
+}
+
 export function Trips() {
   const { signedIn } = useGuest();
   const { cacheKey } = useSession();
@@ -48,6 +76,7 @@ export function Trips() {
   const bookings = direct.data?.pages.flatMap((page) => page) ?? [];
   return <TripPage title="My trips" sub="Track your bids and revisit your bookings.">
     {!signedIn ? <SignInPrompt /> : <>
+      <GuestSignInEmail />
       <TicketContactPreferences />
       <ErrorBox error={trips.error ?? direct.error} />
       {(trips.isPending || direct.isPending) && <p role="status">Loading trips…</p>}

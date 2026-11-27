@@ -7,7 +7,7 @@ import { useApi } from '../../lib/api';
 import { fmtDate, todayISO } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import DestinationField from './DestinationField';
-import { useGuest } from './GuestShell';
+import StayReview from './StayReview';
 import HotelDetails from './HotelDetails';
 import StayHeroImage from './StayHeroImage';
 import StayTypeNav from './StayTypeNav';
@@ -35,11 +35,11 @@ export default function HourlySearch() {
   const [mapOpen, setMapOpen] = useState(false);
   const [hours, setHours] = useState(() => params.get('hours') === '6' ? 6 : 3);
   const [details, setDetails] = useState<Listing>();
+  const [review, setReview] = useState<Listing>();
   const location = useMapSearch();
   const api = useApi();
   const startCheckout = useDirectCheckout();
   const { baseUrl, cacheKey } = useSession();
-  const { signedIn, checkingSignIn, openSignIn } = useGuest();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -121,7 +121,7 @@ export default function HourlySearch() {
       </div>
       <button className="guest-cta" disabled={checkout.isPending}>Find hourly stays <ArrowRight size={16} /></button>
     </form>
-    <ErrorBox error={results.error ?? checkout.error} />
+    <ErrorBox error={results.error} />
     {criteria && criteria.city === city.trim() && criteria.area === area && <>
       <p className="guest-trip-description guest-withdraw"><Clock3 size={14} /> {destinationLabel(criteria.city, area)} · {fmtDate(criteria.date)} · {criteria.arrival} IST · {criteria.hours} hours</p>
       <div className="guest-filters">
@@ -149,13 +149,17 @@ export default function HourlySearch() {
         </div>
         <div className="guest-offer-actions">
           <button type="button" className="guest-quiet" onClick={() => setDetails(hotel)}>Photos and rooms</button>
-          <button type="button" className="guest-cta" disabled={checkingSignIn || checkout.isPending}
-            onClick={() => signedIn ? checkout.mutate(hotel) : openSignIn()}>Book {criteria.hours} hours <ArrowRight size={16} /></button>
+          <button type="button" className="guest-cta" onClick={() => setReview(hotel)}>Book {criteria.hours} hours <ArrowRight size={16} /></button>
         </div>
       </article>)}</div>
       {results.hasNextPage && <button type="button" className="guest-quiet" disabled={results.isFetchingNextPage}
         onClick={() => { void results.fetchNextPage(); }}>Load more hotels</button>}
     </>}
+    {criteria && review && <StayReview hotelId={review.hotelId} hotelName={review.hotelName} roomTypeId={review.roomTypeId}
+      roomName={review.roomName} hourly dates={`${fmtDate(criteria.date)} · ${criteria.arrival} IST · ${criteria.hours} hours`}
+      rooms={criteria.rooms} guests={criteria.guests} total={review.ratePerRoom * criteria.rooms}
+      busy={checkout.isPending} error={checkout.error}
+      back={() => { setReview(undefined); checkout.reset(); }} proceed={() => checkout.mutate(review)} />}
     {details && <HotelDetails id={details.hotelId} name={details.hotelName} close={() => setDetails(undefined)} />}
   </main>;
 }

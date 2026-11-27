@@ -60,6 +60,8 @@ bidstay:
     webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
     reference-prefix: ${RAZORPAY_REFERENCE_PREFIX:bidstay}
   auth:
+    guest-email-from: ${BIDSTAY_GUEST_EMAIL_FROM:}
+    guest-email-secret: ${BIDSTAY_GUEST_EMAIL_AUTH_SECRET:}
     twilio-account-sid: ${TWILIO_ACCOUNT_SID:}
     twilio-auth-token: ${TWILIO_AUTH_TOKEN:}
     twilio-verify-service-sid: ${TWILIO_VERIFY_SERVICE_SID:}

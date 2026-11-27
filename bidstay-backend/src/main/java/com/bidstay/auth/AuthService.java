@@ -65,7 +65,7 @@ class AuthService {
             var user = users.findByPhone(phone).orElseThrow();
             if (user.getRole() != Role.GUEST) return null;
             jdbc.update("update users set guest_phone_verified = true where id = ? and not guest_phone_verified", user.getId());
-            return issueSession(user);
+            return issueSession(user, clock.instant());
         });
     }
 
@@ -87,10 +87,17 @@ class AuthService {
     }
 
     SignedIn issueSession(User user) {
+        return issueSession(user, null);
+    }
+
+    private SignedIn issueSession(User user, Instant guestSmsVerifiedAt) {
         String token = newToken();
         Instant expiresAt = clock.instant().plus(user.getRole() == Role.ADMIN ? Duration.ofHours(8) : SESSION_LIFETIME);
-        jdbc.update("insert into auth_sessions (token_hash, user_id, expires_at, scope_role) values (?, ?, ?, ?)",
-                hash(token), user.getId(), Timestamp.from(expiresAt), user.getRole().name());
+        jdbc.update("""
+                insert into auth_sessions (token_hash, user_id, expires_at, scope_role, guest_sms_verified_at)
+                values (?, ?, ?, ?, ?)
+                """, hash(token), user.getId(), Timestamp.from(expiresAt), user.getRole().name(),
+                guestSmsVerifiedAt == null ? null : Timestamp.from(guestSmsVerifiedAt));
         return new SignedIn(token, expiresAt, new Guest(user.getId(), user.getName(), user.getPhone()));
     }
 
@@ -112,6 +119,16 @@ class AuthService {
                   and (u.role <> 'HOTEL_STAFF' or exists (select 1 from hotel_staff h where h.user_id = u.id))
                 """, (rs, i) -> rs.getLong(1), hash, Timestamp.from(clock.instant()))
                 .stream().findFirst().orElseThrow(AuthService::signInRequired);
+    }
+
+    boolean hasRecentGuestSms(String authorization, long guestId) {
+        Instant now = clock.instant();
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists (select 1 from auth_sessions
+                    where token_hash = ? and user_id = ? and scope_role = 'GUEST' and expires_at > ?
+                      and guest_sms_verified_at > ?)
+                """, Boolean.class, authorizationHash(authorization), guestId, Timestamp.from(now),
+                Timestamp.from(now.minus(Duration.ofMinutes(15)))));
     }
 
     void signOut(String authorization) {

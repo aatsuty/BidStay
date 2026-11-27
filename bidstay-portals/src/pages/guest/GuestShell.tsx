@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
 import { BedDouble, Bell, Building2, CalendarDays, ChevronRight, CircleUserRound, LogOut, Search, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -7,15 +7,23 @@ import { ErrorBox } from '../../components/ui';
 import { make, useApi } from '../../lib/api';
 import { demoMode } from '../../lib/runtime';
 import { useSession } from '../../lib/session';
+import GuestIdentityForm from './GuestIdentityForm';
 import './guest.css';
 
-type GuestContext = { signedIn: boolean; checkingSignIn: boolean; openSignIn: () => void };
+type GuestContext = { signedIn: boolean; checkingSignIn: boolean; emailEnabled: boolean; openSignIn: () => void };
 export const useGuest = () => useOutletContext<GuestContext>();
 
 export default function GuestShell() {
   const session = useSession();
   const api = useApi();
   const me = useMe();
+  const methods = useQuery({
+    queryKey: ['guest-sign-in-methods', session.baseUrl],
+    queryFn: () => api.get<{ email: boolean }>('/api/v1/auth/guest/methods'),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const emailEnabled = methods.data?.email === true;
   const { pathname } = useLocation();
   const [params, setParams] = useSearchParams();
   const [showSignIn, setShowSignIn] = useState(() => params.get('signIn') === '1');
@@ -70,10 +78,10 @@ export default function GuestShell() {
         </div>
       </header>
       <div className="guest-container"><ErrorBox error={logoutError} /></div>
-      <Outlet context={{ signedIn, checkingSignIn, openSignIn: () => setShowSignIn(true) } satisfies GuestContext} />
+      <Outlet context={{ signedIn, checkingSignIn, emailEnabled, openSignIn: () => setShowSignIn(true) } satisfies GuestContext} />
       <footer className="guest-footer"><div className="guest-container"><Link to="/" className="guest-wordmark">Bid<strong>Stay</strong></Link><Link to="/login">Hotel partner &amp; admin portal <ChevronRight size={14} /></Link></div></footer>
       <nav className="guest-mobile-nav" aria-label="Guest navigation">{guestLinks}{accountButton()}</nav>
-      {showSignIn && <GuestSignIn close={() => {
+      {showSignIn && <GuestSignIn emailEnabled={emailEnabled} close={() => {
         setShowSignIn(false);
         if (params.has('signIn')) {
           const next = new URLSearchParams(params);
@@ -85,37 +93,13 @@ export default function GuestShell() {
   );
 }
 
-function GuestSignIn({ close }: { close: () => void }) {
+function GuestSignIn({ close, emailEnabled }: { close: () => void; emailEnabled: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const api = useApi();
   const session = useSession();
-  const [phone, setPhone] = useState('');
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [sent, setSent] = useState(false);
+  const [method, setMethod] = useState<'email' | 'mobile'>(emailEnabled ? 'email' : 'mobile');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   useEffect(() => { dialog.current?.showModal(); }, []);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError(undefined);
-    try {
-      if (!sent) {
-        await api.post('/api/v1/auth/guest/code', { phone });
-        setSent(true);
-      } else {
-        const verified = await api.post<{ token: string; guest: { id: number } }>('/api/v1/auth/guest/verify', { phone, code, name: name.trim() });
-        session.signInVerified(verified.guest.id, verified.token);
-        close();
-      }
-    } catch (failure) {
-      setError(failure);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function demo() {
     setBusy(true);
@@ -134,17 +118,17 @@ function GuestSignIn({ close }: { close: () => void }) {
   return (
     <dialog ref={dialog} className="guest-dialog" aria-labelledby="guest-sign-in" onCancel={close}>
       <button type="button" className="guest-close" onClick={close} aria-label="Close"><X size={21} /></button>
-      <h2 id="guest-sign-in">{sent ? 'Enter your verification code' : 'Sign in or create an account'}</h2>
-      <p>{sent ? `Code sent to +91 ${phone}.` : 'Use your mobile number to make bids and manage trips.'}</p>
-      <form onSubmit={(event) => { void submit(event); }}>
-        {!sent ? <>
-          <label>Mobile number (+91)<input autoComplete="tel-national" required inputMode="numeric" pattern="[6-9][0-9]{9}" maxLength={10} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
-          <label>Name <small>(optional)</small><input autoComplete="name" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>
-        </> : <label>Verification code<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} /></label>}
-        <ErrorBox error={error} />
-        <button className="guest-cta" disabled={busy}>{busy ? 'Please wait…' : sent ? 'Verify and sign in' : 'Send code'}</button>
-      </form>
-      {sent && <button className="guest-quiet" onClick={() => { setSent(false); setCode(''); setError(undefined); }}>Change number or send again</button>}
+      <h2 id="guest-sign-in">Sign in or create an account</h2>
+      <p>{emailEnabled ? 'Get a one-time code by email or SMS.' : 'Use your mobile number to make bids and manage trips.'}</p>
+      {emailEnabled && <div className="guest-sign-in-methods" role="group" aria-label="Sign-in method">
+        <button type="button" className="guest-quiet" aria-pressed={method === 'email'} onClick={() => setMethod('email')}>Email</button>
+        <button type="button" className="guest-quiet" aria-pressed={method === 'mobile'} onClick={() => setMethod('mobile')}>Mobile</button>
+      </div>}
+      <GuestIdentityForm key={method} action={{ kind: method, onSignedIn: ({ guest, token }) => {
+        session.signInVerified(guest.id, token);
+        close();
+      } }} />
+      <ErrorBox error={error} />
       {demoMode && <button className="guest-quiet" disabled={busy} onClick={() => { void demo(); }}>Continue with demo guest</button>}
     </dialog>
   );

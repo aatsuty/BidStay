@@ -4,11 +4,12 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDown, ArrowRight, BedDouble, Bell, CalendarDays, Check, ChevronDown, Clock3, IndianRupee, Images, List, LocateFixed, Map, MapPin, Minus, Plus, Search as SearchIcon, ShieldCheck, SlidersHorizontal, Star, Users } from 'lucide-react';
 import { ErrorBox } from '../../components/ui';
 import { useApi } from '../../lib/api';
-import { todayISO } from '../../lib/format';
+import { fmtDate, todayISO } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import DestinationField from './DestinationField';
 import { useMapSearch } from './useMapSearch';
 import HotelDetails from './HotelDetails';
+import StayReview from './StayReview';
 import StayHeroImage from './StayHeroImage';
 import StayTypeNav from './StayTypeNav';
 import { useGuest } from './GuestShell';
@@ -60,6 +61,7 @@ export default function Search() {
     return budget >= 1 && budget <= 100_000 ? String(budget) : '1500';
   });
   const [details, setDetails] = useState<HotelResult>();
+  const [reviewing, setReviewing] = useState(false);
 
   const hotelQuery = useInfiniteQuery({
     queryKey: ['hotel-search', baseUrl, criteria, minimumStars, maximumRate, location.nearby, location.bounds],
@@ -258,16 +260,19 @@ export default function Search() {
           }}>Review bid <ArrowRight size={16} /></button>
         </div>}
       </section>}
-      {details && <HotelDetails id={details.id} name={details.name}
+      {details && !reviewing && <HotelDetails id={details.id} name={details.name}
         selection={{ selected: selected.has(details.id), toggle: () => toggle(details.id) }}
         bookingAction={details.roomTypeId && <div>
-          <ErrorBox error={bookListed.error} />
-          <button type="button" className="guest-cta" disabled={checkingSignIn || searchDirty || bookListed.isPending}
-            onClick={() => signedIn ? bookListed.mutate(details) : openSignIn()}>
-            {bookListed.isPending ? 'Checking availability…' : `Book at listed price · ${rupees.format(details.listedPrice * nights * criteria.rooms)}`}
+          <button type="button" className="guest-cta" disabled={searchDirty} onClick={() => setReviewing(true)}>
+            Book at listed price · {rupees.format(details.listedPrice * nights * criteria.rooms)}
           </button>
         </div>}
-        close={() => { setDetails(undefined); bookListed.reset(); }} />}
+        close={() => setDetails(undefined)} />}
+      {details && reviewing && <StayReview hotelId={details.id} hotelName={details.name} roomTypeId={details.roomTypeId}
+        dates={`${fmtDate(criteria.checkIn)} – ${fmtDate(criteria.checkOut)} · ${nights} ${nights === 1 ? 'night' : 'nights'}`}
+        rooms={criteria.rooms} guests={criteria.guests} total={details.listedPrice * nights * criteria.rooms}
+        busy={bookListed.isPending} error={bookListed.error}
+        back={() => { setReviewing(false); bookListed.reset(); }} proceed={() => bookListed.mutate(details)} />}
       <section className="guest-how" aria-label="How bidding works">
         <div><span><SearchIcon size={19} /></span><h3>Choose your stay</h3><p>Find hotels with space for your dates.</p></div>
         <div><span><IndianRupee size={19} /></span><h3>Send one bid</h3><p>Selected hotels can accept or counter your price.</p></div>

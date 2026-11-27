@@ -13,7 +13,7 @@ interface Room {
   id: number; name: string; category: string; maxGuests: number; listedPrice: number; photos: Photo[];
   hourlyRates?: { threeHours: number; sixHours: number } | null;
 }
-interface Hotel { id: number; name: string; city: string; area: string; starRating?: number; photos: Photo[]; rooms: Room[]; stayPolicy?: StayPolicy }
+export interface PublicHotel { id: number; name: string; city: string; area: string; starRating?: number; photos: Photo[]; rooms: Room[]; stayPolicy?: StayPolicy }
 interface PublicReview { rating: number; comment?: string; createdAt: string }
 
 export default function HotelDetails({ id, name, selection, bookingAction, close }: {
@@ -26,7 +26,7 @@ export default function HotelDetails({ id, name, selection, bookingAction, close
   const [photoId, setPhotoId] = useState<number>();
   const hotel = useQuery({
     queryKey: ['hotel-details', baseUrl, id],
-    queryFn: () => api.get<Hotel>('/api/v1/hotels/' + id),
+    queryFn: () => api.get<PublicHotel>('/api/v1/hotels/' + id),
     refetchOnWindowFocus: 'always',
   });
   const reviews = useQuery({
